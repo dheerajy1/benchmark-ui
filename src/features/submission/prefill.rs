@@ -18,7 +18,7 @@ pub enum Prefill {
     // Custom mode, filled from the run. `notice` says what could not be filled and
     // `header_names` lists the headers the run sent, whose values are never stored.
     Custom {
-        form: FormState,
+        form: Box<FormState>,
         notice: Option<String>,
         header_names: Vec<String>,
     },
@@ -144,7 +144,7 @@ fn custom_fill(entry: &ConfigurationEntry, removed_target_notice: Option<String>
         .collect();
 
     Prefill::Custom {
-        form,
+        form: Box::new(form),
         notice: (!notices.is_empty()).then(|| notices.join(" ")),
         header_names,
     }

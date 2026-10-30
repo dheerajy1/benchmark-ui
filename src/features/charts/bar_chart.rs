@@ -80,7 +80,7 @@ pub fn BarChart(
     let series_count = series.len();
     let gaps = BAR_GAP_PERCENT * (series_count - 1) as f64;
     let fitted = (group_width * 0.7 - gaps) / series_count as f64;
-    let bar_width = fitted.min(MAX_BAR_PERCENT).max(0.5);
+    let bar_width = fitted.clamp(0.5, MAX_BAR_PERCENT);
     let cluster_width = bar_width * series_count as f64 + gaps;
 
     let mut bars: Vec<Bar> = Vec::new();

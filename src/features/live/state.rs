@@ -176,7 +176,7 @@ pub struct LogLine {
 // What applying one event did
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Applied {
-    Applied,
+    Accepted,
     // Already seen, ignored
     Duplicate,
     // Events are missing, reconnect and ask for them after the last seq
@@ -473,7 +473,7 @@ impl LiveState {
             }
         }
 
-        Applied::Applied
+        Applied::Accepted
     }
 
     fn apply_measurement(&mut self, data: &Value) {
@@ -715,14 +715,14 @@ mod tests {
 
         assert_eq!(
             state.apply_event(accepted(Value::Null), 0),
-            Applied::Applied
+            Applied::Accepted
         );
         assert_eq!(
             state.apply_event(
                 event(2, 5, "stage.started", json!({"stage": "discovery"})),
                 10
             ),
-            Applied::Applied
+            Applied::Accepted
         );
         assert_eq!(state.last_seq(), 2);
         assert!(state.has_events());
@@ -763,11 +763,11 @@ mod tests {
 
         assert_eq!(
             state.apply_event(event(10, 50, "sample", sample_data(500, 5)), 0),
-            Applied::Applied
+            Applied::Accepted
         );
         assert_eq!(
             state.apply_event(event(11, 60, "sample", sample_data(1000, 9)), 0),
-            Applied::Applied
+            Applied::Accepted
         );
         assert_eq!(
             state.apply_event(event(13, 70, "sample", sample_data(1500, 12)), 0),
@@ -786,7 +786,7 @@ mod tests {
 
         assert_eq!(
             state.apply_event(event(30, 1, "stage.started", json!({"stage": "build"})), 0),
-            Applied::Applied
+            Applied::Accepted
         );
     }
 
@@ -1043,7 +1043,7 @@ mod tests {
 
         assert_eq!(
             state.apply_event(event(2, 600, "sample", json!({"nonsense": true})), 0),
-            Applied::Applied
+            Applied::Accepted
         );
         assert!(state.latest_sample().is_none());
         assert_eq!(state.last_seq(), 2);
@@ -1306,7 +1306,7 @@ mod tests {
 
         assert_eq!(
             state.apply_event(event(2, 1, "something.new", json!({})), 0),
-            Applied::Applied
+            Applied::Accepted
         );
         assert_eq!(state.last_seq(), 2);
         assert_eq!(state.log().len(), 1);

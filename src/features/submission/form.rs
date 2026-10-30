@@ -379,7 +379,7 @@ mod tests {
     fn rejects_an_empty_path() {
         let errors = validate(&FormState::default()).expect_err("invalid");
 
-        assert_eq!(error_for(&errors, Field::Path).is_empty(), false);
+        assert!(!error_for(&errors, Field::Path).is_empty());
     }
 
     #[test]

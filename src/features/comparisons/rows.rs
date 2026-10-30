@@ -23,7 +23,7 @@ impl MetricRow {
     pub fn difference_text(&self) -> String {
         match self.diff.absolute_difference {
             None => crate::format::MISSING.to_string(),
-            Some(value) if value == 0.0 => "0".to_string(),
+            Some(0.0) => "0".to_string(),
             Some(value) => {
                 let sign = if value > 0.0 { "+" } else { "−" };
 

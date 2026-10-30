@@ -1,0 +1,105 @@
+name: Test
+
+on:
+  push:
+    branches: ['feat/*', 'feat/**', 'fix/*', 'fix/**', 'chore/*', 'chore/**', 'refactor/*', 'refactor/**', 'docs/*', 'docs/**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build, Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Add checkout summary
+        run: |
+          echo "## Repository Checkout" >> $GITHUB_STEP_SUMMARY
+          echo "Checked out branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Repository ready for Rust setup"
+
+      # 2. Setup Rust toolchain
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Add Rust summary
+        run: |
+          echo "## Rust Setup" >> $GITHUB_STEP_SUMMARY
+          echo "Rust version: $(rustc --version)" >> $GITHUB_STEP_SUMMARY
+          echo "Cargo version: $(cargo --version)" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Rust toolchain configured"
+
+      # 3. Cache Rust dependencies & build artifacts
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        id: rust-cache
+
+      - name: Add Rust cache summary
+        run: |
+          CACHE_HIT=${{ steps.rust-cache.outputs.cache-hit }}
+          echo "## Rust Dependency Cache" >> $GITHUB_STEP_SUMMARY
+          echo "Cache hit: $CACHE_HIT" >> $GITHUB_STEP_SUMMARY
+          if [ "$CACHE_HIT" = "true" ]; then
+            echo "::notice::Rust cache restored"
+          else
+            echo "::notice::Rust cache miss—dependencies will be rebuilt"
+          fi
+
+      # 4. Check formatting
+      - name: Format Check
+        run: cargo fmt --check
+
+      - name: Add format check summary
+        run: |
+          echo "## Cargo Format Results" >> $GITHUB_STEP_SUMMARY
+          echo "Cargo format check completed successfully—codebase formatted" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Rust formatting check passed"
+
+      # 5. Check web target
+      - name: Check
+        run: cargo check --locked --no-default-features --features web
+
+      - name: Add check summary
+        run: |
+          echo "## Cargo Check Results" >> $GITHUB_STEP_SUMMARY
+          echo "Cargo web check completed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Cargo check passed"
+
+      # 6. Lint web target
+      - name: Lint
+        run: cargo clippy --locked --no-default-features --features web --all-targets -- -D warnings
+
+      - name: Add lint summary
+        run: |
+          echo "## Clippy Results" >> $GITHUB_STEP_SUMMARY
+          echo "Clippy completed successfully—no warnings found" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Rust linting passed"
+
+      # 7. Test web target
+      - name: Test
+        run: cargo test --locked --no-default-features --features web
+
+      - name: Add test summary
+        run: |
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "Cargo tests completed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Rust tests passed"
+
+      # 8. Build web target
+      - name: Build
+        run: cargo build --locked --no-default-features --features web
+
+      - name: Add build summary
+        run: |
+          echo "## Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "Cargo web build completed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "::notice::Rust web build passed"

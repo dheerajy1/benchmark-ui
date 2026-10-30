@@ -164,7 +164,7 @@ fn fill_from_entry(mut signals: FillSignals, entry: ConfigurationEntry, view: &T
             notice,
             header_names,
         } => {
-            signals.form.set(filled);
+            signals.form.set(*filled);
             signals.errors.set(Vec::new());
             signals.start_mode.set(StartMode::Custom);
             signals.banner.set(Some(Banner {
@@ -331,8 +331,6 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
         errors.set(Vec::new());
         phase.set(Phase::Running);
 
-        let nav = nav.clone();
-
         spawn(async move {
             match submit_live(&request).await {
                 Ok(accepted) => {
@@ -364,8 +362,6 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
 
         target_error.set(None);
         phase.set(Phase::Running);
-
-        let nav = nav.clone();
 
         spawn(async move {
             match submit_target_live(&request).await {
@@ -421,7 +417,7 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
                 notice,
                 header_names,
             } => {
-                form.set(filled);
+                form.set(*filled);
                 errors.set(Vec::new());
                 start_mode.set(StartMode::Custom);
                 banner.set(Some(Banner {
