@@ -23,10 +23,10 @@ fn NavItem(
     rsx! {
         Link {
             to,
-            class: "flex items-center gap-(--space-3) rounded-(--round-md) px-(--space-3) py-(--space-2) text-(length:--fs-base) font-(weight:--fw-medium) transition-colors {state_class}",
+            class: "flex h-(--nav-height) items-center gap-(--space-3) rounded-(--round-md) px-(--space-3) text-(length:--fs-sm) font-(weight:--fw-medium) transition-colors {state_class}",
             onclick: move |_| on_navigate.call(()),
             "aria-current": if active { "page" },
-            Icon { kind: icon }
+            Icon { kind: icon, class: "size-4" }
             "{label}"
         }
     }
@@ -61,13 +61,17 @@ pub fn Sidebar(open: Signal<bool>) -> Element {
         aside {
             class: "fixed inset-y-0 left-0 z-40 flex w-(--sidebar-width) flex-col border-r border-(color:--clr-border) bg-(--clr-surface) transition-transform lg:translate-x-0 {drawer_class}",
             "aria-label": "Primary",
-            div { class: "flex h-(--topbar-height) items-center gap-(--space-3) border-b border-(color:--clr-border) px-(--space-5)",
-                span { class: "flex size-(--icon-lg) items-center justify-center rounded-(--round-sm) bg-(--clr-accent) text-(color:--clr-accent-contrast)",
-                    Icon { kind: IconKind::Dashboard, class: "size-(--icon-sm)" }
+            div { class: "flex h-(--topbar-height) items-center gap-(--space-2) border-b border-(color:--clr-border) px-(--space-4)",
+                span { class: "flex size-6 items-center justify-center rounded-(--round-md) bg-(--clr-accent-soft) text-(color:--clr-accent)",
+                    Icon { kind: IconKind::Gauge, class: "size-4" }
                 }
-                span { class: "text-(length:--fs-lg) font-(weight:--fw-bold) tracking-tight", "Benchmark" }
+                span { class: "text-(length:--fs-base) font-(weight:--fw-semibold) tracking-tight text-(color:--clr-text)",
+                    "Benchmark"
+                }
             }
-            nav { class: "flex flex-1 flex-col gap-(--space-1) p-(--space-3)",
+            nav {
+                class: "flex flex-1 flex-col gap-(--space-1) p-(--space-2)",
+                "aria-label": "Main",
                 NavItem {
                     to: Route::Overview {},
                     label: "Overview",
@@ -100,7 +104,7 @@ pub fn Sidebar(open: Signal<bool>) -> Element {
                     on_navigate: move |_| open.set(false),
                 }
             }
-            p { class: "border-t border-(color:--clr-border) px-(--space-5) py-(--space-4) text-(length:--fs-xs) text-(color:--clr-text-faint)",
+            p { class: "border-t border-(color:--clr-border) px-(--space-4) py-(--space-3) text-(length:--fs-xs) text-(color:--clr-text-faint)",
                 "Benchmark dashboard"
             }
         }

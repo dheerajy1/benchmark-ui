@@ -2,13 +2,21 @@ use dioxus::prelude::*;
 
 use super::{
     frame::{
-        baseline_y, inner_height, inner_width, view_box, y_scale, ChartEmpty, ChartGrid,
-        ChartLegend, SvgTooltip, TooltipLine, HEIGHT, MARGIN_LEFT, MARGIN_TOP,
+        y_scale, ChartEmpty, ChartLegend, ChartTooltip, HoverZones, PlotFrame, TooltipLine, XAlign,
     },
     palette::ChartTone,
     scale::nice_domain,
 };
 use crate::format::{format_optional, ValueFormat};
+
+// Widest a single bar may grow, as a percentage of the plot width
+const MAX_BAR_PERCENT: f64 = 12.0;
+
+// Space between the bars of one cluster, as a percentage of the plot width
+const BAR_GAP_PERCENT: f64 = 1.0;
+
+// Thinnest a bar is drawn, in percent of the plot height, so tiny values stay visible
+const MIN_BAR_HEIGHT: f64 = 0.4;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BarSeries {
@@ -23,22 +31,13 @@ pub struct BarGroup {
     pub values: Vec<Option<f64>>,
 }
 
-// Drawn bar with every coordinate already formatted for the SVG attributes
+// Drawn bar in the 0 to 100 plot box, every coordinate already formatted for the SVG attributes
 struct Bar {
     x: String,
     y: String,
     width: String,
     height: String,
     fill_class: &'static str,
-}
-
-struct GroupZone {
-    index: usize,
-    x: String,
-    width: String,
-    label_x: String,
-    label: String,
-    aria: String,
 }
 
 // Vertical bars on a zero baseline, several series are drawn side by side
@@ -49,7 +48,7 @@ pub fn BarChart(
     series: Vec<BarSeries>,
     format: ValueFormat,
 ) -> Element {
-    let mut hovered = use_signal(|| None::<usize>);
+    let hovered = use_signal(|| None::<usize>);
 
     let present: Vec<f64> = groups
         .iter()
@@ -74,19 +73,20 @@ pub fn BarChart(
         .max(0.0);
     let domain = nice_domain(low, high, true, 5);
     let scale = y_scale(&domain);
-    let zero_y = scale.map(0.0).clamp(MARGIN_TOP, baseline_y());
+    let zero_y = scale.map(0.0).clamp(0.0, 100.0);
 
-    let group_width = inner_width() / groups.len() as f64;
-    let group_padding = group_width * 0.18;
-    let usable_width = group_width - group_padding * 2.0;
+    let group_count = groups.len();
+    let group_width = 100.0 / group_count as f64;
     let series_count = series.len();
-    let bar_gap = if series_count > 1 { 3.0 } else { 0.0 };
-    let bar_width =
-        ((usable_width - bar_gap * (series_count - 1) as f64) / series_count as f64).max(1.0);
+    let gaps = BAR_GAP_PERCENT * (series_count - 1) as f64;
+    let fitted = (group_width * 0.7 - gaps) / series_count as f64;
+    let bar_width = fitted.min(MAX_BAR_PERCENT).max(0.5);
+    let cluster_width = bar_width * series_count as f64 + gaps;
 
     let mut bars: Vec<Bar> = Vec::new();
     for (group_index, group) in groups.iter().enumerate() {
-        let group_left = MARGIN_LEFT + group_width * group_index as f64;
+        let group_left = group_width * group_index as f64;
+        let cluster_left = group_left + (group_width - cluster_width) / 2.0;
 
         for (series_index, value) in group.values.iter().enumerate() {
             let (Some(value), Some(entry)) = (value, series.get(series_index)) else {
@@ -95,8 +95,8 @@ pub fn BarChart(
 
             let value_y = scale.map(*value);
             let top = value_y.min(zero_y);
-            let height = (zero_y - value_y).abs();
-            let left = group_left + group_padding + series_index as f64 * (bar_width + bar_gap);
+            let height = (zero_y - value_y).abs().max(MIN_BAR_HEIGHT);
+            let left = cluster_left + series_index as f64 * (bar_width + BAR_GAP_PERCENT);
 
             bars.push(Bar {
                 x: format!("{left:.2}"),
@@ -108,11 +108,9 @@ pub fn BarChart(
         }
     }
 
-    let zones: Vec<GroupZone> = groups
+    let zone_labels: Vec<String> = groups
         .iter()
-        .enumerate()
-        .map(|(index, group)| {
-            let left = MARGIN_LEFT + group_width * index as f64;
+        .map(|group| {
             let summary = group
                 .values
                 .iter()
@@ -127,15 +125,13 @@ pub fn BarChart(
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            GroupZone {
-                index,
-                x: format!("{left:.2}"),
-                width: format!("{group_width:.2}"),
-                label_x: format!("{:.2}", left + group_width / 2.0),
-                label: group.label.clone(),
-                aria: format!("{}: {summary}", group.label),
-            }
+            format!("{}: {summary}", group.label)
         })
+        .collect();
+
+    let x_labels: Vec<(String, XAlign)> = groups
+        .iter()
+        .map(|group| (group.label.clone(), XAlign::Center))
         .collect();
 
     let active = hovered();
@@ -155,7 +151,7 @@ pub fn BarChart(
                 .collect::<Vec<_>>();
 
             (
-                MARGIN_LEFT + group_width * index as f64 + group_width / 2.0,
+                (index as f64 + 0.5) * group_width,
                 group.label.clone(),
                 lines,
             )
@@ -168,57 +164,31 @@ pub fn BarChart(
         .collect();
     let show_legend = series.len() > 1;
 
-    let view_box_value = view_box();
-    let plot_top = MARGIN_TOP;
-    let plot_height = inner_height();
-    let axis_y = HEIGHT - 8.0;
-
     rsx! {
-        div { class: "w-full",
+        div { class: "w-full", "role": "group", "aria-label": "{title}",
             if show_legend {
                 ChartLegend { entries: legend }
             }
-            svg {
-                class: "h-auto w-full",
-                view_box: "{view_box_value}",
-                "role": "group",
-                "aria-label": "{title}",
-                ChartGrid { domain: domain.clone(), format }
-                for bar in bars {
-                    rect {
-                        x: "{bar.x}",
-                        y: "{bar.y}",
-                        width: "{bar.width}",
-                        height: "{bar.height}",
-                        rx: "3",
-                        class: "{bar.fill_class}",
+            PlotFrame { domain: domain.clone(), format, x_labels,
+                svg {
+                    class: "absolute inset-0 h-full w-full",
+                    view_box: "0 0 100 100",
+                    "preserveAspectRatio": "none",
+                    "aria-hidden": "true",
+                    for (index , bar) in bars.into_iter().enumerate() {
+                        rect {
+                            key: "{index}",
+                            x: "{bar.x}",
+                            y: "{bar.y}",
+                            width: "{bar.width}",
+                            height: "{bar.height}",
+                            class: "{bar.fill_class}",
+                        }
                     }
                 }
-                for zone in zones {
-                    text {
-                        x: "{zone.label_x}",
-                        y: "{axis_y}",
-                        text_anchor: "middle",
-                        class: "fill-(--clr-text-faint) text-(length:--fs-xs)",
-                        "{zone.label}"
-                    }
-                    rect {
-                        x: "{zone.x}",
-                        y: "{plot_top}",
-                        width: "{zone.width}",
-                        height: "{plot_height}",
-                        class: "fill-transparent",
-                        "tabindex": "0",
-                        "role": "img",
-                        "aria-label": "{zone.aria}",
-                        onmouseenter: move |_| hovered.set(Some(zone.index)),
-                        onmouseleave: move |_| hovered.set(None),
-                        onfocus: move |_| hovered.set(Some(zone.index)),
-                        onblur: move |_| hovered.set(None),
-                    }
-                }
-                if let Some((anchor_x , heading , lines)) = tooltip {
-                    SvgTooltip { anchor_x, heading, lines }
+                HoverZones { labels: zone_labels, active: hovered }
+                if let Some((anchor_percent , heading , lines)) = tooltip {
+                    ChartTooltip { anchor_percent, heading, lines }
                 }
             }
         }

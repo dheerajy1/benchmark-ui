@@ -11,7 +11,7 @@ use crate::{
     format::{format_timestamp, short_id, ValueFormat, MISSING},
 };
 
-const HEADER_CELL: &str = "px-(--space-3) py-(--space-2) text-(length:--fs-xs) font-(weight:--fw-medium) uppercase tracking-wider text-(color:--clr-text-faint)";
+const HEADER_CELL: &str = "px-(--space-3) py-(--space-2) text-(length:--fs-2xs) font-(weight:--fw-medium) uppercase tracking-wider whitespace-nowrap text-(color:--clr-text-faint)";
 
 fn pair_group(label: &str, diff: &MetricDiff) -> BarGroup {
     BarGroup {
@@ -24,25 +24,27 @@ fn pair_series() -> Vec<BarSeries> {
     vec![
         BarSeries {
             name: "Baseline".to_string(),
-            tone: ChartTone::Blue,
+            tone: ChartTone::Slate,
         },
         BarSeries {
             name: "Comparison".to_string(),
-            tone: ChartTone::Green,
+            tone: ChartTone::Blue,
         },
     ]
 }
 
 // Identity of one side of the comparison
 #[component]
-fn RunCard(#[props(into)] role: String, run: RunReference) -> Element {
+fn RunCard(#[props(into)] role: String, run: RunReference, tone: ChartTone) -> Element {
     let short = short_id(&run.run_id);
     let created = format_timestamp(&run.created_at);
+    let swatch = tone.swatch_class();
 
     rsx! {
-        Card { class: "p-(--space-5)",
+        Card { class: "px-(--space-4) py-(--space-3)",
             div { class: "flex items-center justify-between gap-(--space-3)",
-                span { class: "text-(length:--fs-xs) font-(weight:--fw-medium) uppercase tracking-wider text-(color:--clr-text-faint)",
+                span { class: "flex items-center gap-(--space-2) text-(length:--fs-2xs) font-(weight:--fw-medium) uppercase tracking-wider text-(color:--clr-text-faint)",
+                    span { class: "inline-block size-(--dot-size) rounded-(--round-full) {swatch}" }
                     "{role}"
                 }
                 if let Some(runtime) = run.runtime.clone() {
@@ -53,7 +55,7 @@ fn RunCard(#[props(into)] role: String, run: RunReference) -> Element {
                 to: Route::RunDetail {
                     run_id: run.run_id.clone(),
                 },
-                class: "mt-(--space-2) inline-block font-(family-name:--font-code) text-(length:--fs-lg) text-(color:--clr-accent) hover:underline",
+                class: "mt-(--space-1) inline-block font-(family-name:--font-code) text-(length:--fs-base) text-(color:--clr-accent) hover:underline",
                 "{short}"
             }
             p { class: "mt-(--space-1) break-all font-(family-name:--font-code) text-(length:--fs-xs) text-(color:--clr-text-muted)",
@@ -70,7 +72,7 @@ fn PairChart(#[props(into)] title: String, groups: Vec<BarGroup>, format: ValueF
     rsx! {
         Card {
             CardHeader { title: title.clone() }
-            div { class: "p-(--space-4)",
+            div { class: "px-(--space-4) pt-(--space-3) pb-(--space-3)",
                 BarChart {
                     title,
                     groups,
@@ -90,18 +92,22 @@ fn StatusRow(
     comparison: Option<String>,
 ) -> Element {
     rsx! {
-        div { class: "flex flex-wrap items-center gap-(--space-2)",
-            span { class: "w-20 text-(length:--fs-sm) text-(color:--clr-text-muted)", "{label}" }
-            if let Some(status) = baseline {
-                StatusBadge { status }
-            } else {
-                span { class: "text-(color:--clr-text-faint)", "{MISSING}" }
+        div { class: "flex flex-col gap-(--space-2) rounded-(--round-md) border border-(color:--clr-border) bg-(--clr-surface-raised) px-(--space-3) py-(--space-2)",
+            span { class: "text-(length:--fs-2xs) font-(weight:--fw-medium) uppercase tracking-wider text-(color:--clr-text-faint)",
+                "{label}"
             }
-            span { class: "text-(color:--clr-text-faint)", "→" }
-            if let Some(status) = comparison {
-                StatusBadge { status }
-            } else {
-                span { class: "text-(color:--clr-text-faint)", "{MISSING}" }
+            div { class: "flex flex-wrap items-center gap-(--space-2)",
+                if let Some(status) = baseline {
+                    StatusBadge { status }
+                } else {
+                    span { class: "text-(color:--clr-text-faint)", "{MISSING}" }
+                }
+                span { class: "text-(color:--clr-text-faint)", "aria-hidden": "true", "→" }
+                if let Some(status) = comparison {
+                    StatusBadge { status }
+                } else {
+                    span { class: "text-(color:--clr-text-faint)", "{MISSING}" }
+                }
             }
         }
     }
@@ -161,17 +167,25 @@ pub fn ComparisonResults(data: ComparisonData) -> Element {
         .collect();
 
     rsx! {
-        div { class: "flex flex-col gap-(--space-6)",
-            div { class: "grid grid-cols-1 gap-(--space-4) md:grid-cols-2",
-                RunCard { role: "Baseline", run: data.baseline.clone() }
-                RunCard { role: "Comparison", run: data.comparison.clone() }
+        div { class: "flex flex-col gap-(--space-4)",
+            div { class: "grid grid-cols-1 gap-(--space-3) md:grid-cols-2",
+                RunCard {
+                    role: "Baseline",
+                    run: data.baseline.clone(),
+                    tone: ChartTone::Slate,
+                }
+                RunCard {
+                    role: "Comparison",
+                    run: data.comparison.clone(),
+                    tone: ChartTone::Blue,
+                }
             }
             Card {
                 CardHeader {
                     title: "Measurement status",
                     subtitle: "Baseline → comparison. A value is only compared when both sides succeeded.",
                 }
-                div { class: "flex flex-col gap-(--space-3) p-(--space-5)",
+                div { class: "grid grid-cols-1 gap-(--space-3) p-(--space-4) sm:grid-cols-3",
                     StatusRow {
                         label: "Build",
                         baseline: Some(metrics.build_time.baseline_status.clone()),
@@ -189,7 +203,7 @@ pub fn ComparisonResults(data: ComparisonData) -> Element {
                     }
                 }
             }
-            div { class: "grid grid-cols-1 gap-(--space-4) lg:grid-cols-2",
+            div { class: "grid grid-cols-1 gap-(--space-4) lg:grid-cols-2 xl:grid-cols-3",
                 PairChart { title: "Throughput", groups: throughput, format: ValueFormat::PerSecond }
                 PairChart { title: "Latency", groups: latency, format: ValueFormat::LatencyMs }
                 PairChart { title: "Memory", groups: memory, format: ValueFormat::Bytes }
@@ -199,11 +213,11 @@ pub fn ComparisonResults(data: ComparisonData) -> Element {
             Card {
                 CardHeader {
                     title: "All metrics",
-                    subtitle: "Change is relative to the baseline. Green is an improvement.",
+                    subtitle: "Change is relative to the baseline. Each row says whether it improved or regressed.",
                 }
                 div { class: "overflow-x-auto",
                     table { class: "w-full min-w-(--table-min-width) border-collapse text-left text-(length:--fs-sm)",
-                        thead {
+                        thead { class: "bg-(--clr-surface-raised)",
                             tr {
                                 th { class: "{HEADER_CELL}", "Group" }
                                 th { class: "{HEADER_CELL}", "Metric" }
@@ -215,13 +229,13 @@ pub fn ComparisonResults(data: ComparisonData) -> Element {
                         }
                         tbody {
                             for row in rows {
-                                tr { class: "border-t border-(color:--clr-border) hover:bg-(--clr-surface-hover)",
-                                    td { class: "px-(--space-3) py-(--space-3) text-(color:--clr-text-faint)", "{row.group}" }
-                                    td { class: "px-(--space-3) py-(--space-3)", "{row.label}" }
-                                    td { class: "px-(--space-3) py-(--space-3) text-right tabular-nums", "{row.baseline}" }
-                                    td { class: "px-(--space-3) py-(--space-3) text-right tabular-nums", "{row.comparison}" }
-                                    td { class: "px-(--space-3) py-(--space-3) text-right tabular-nums", "{row.difference}" }
-                                    td { class: "px-(--space-3) py-(--space-3) text-right",
+                                tr { class: "border-t border-(color:--clr-border) transition-colors hover:bg-(--clr-surface-hover)",
+                                    td { class: "px-(--space-3) py-(--space-2) text-(length:--fs-xs) text-(color:--clr-text-faint)", "{row.group}" }
+                                    td { class: "px-(--space-3) py-(--space-2)", "{row.label}" }
+                                    td { class: "px-(--space-3) py-(--space-2) text-right whitespace-nowrap tabular-nums", "{row.baseline}" }
+                                    td { class: "px-(--space-3) py-(--space-2) text-right whitespace-nowrap tabular-nums", "{row.comparison}" }
+                                    td { class: "px-(--space-3) py-(--space-2) text-right whitespace-nowrap tabular-nums", "{row.difference}" }
+                                    td { class: "px-(--space-3) py-(--space-2) text-right whitespace-nowrap",
                                         DeltaBadge { change: row.change, lower_is_better: row.lower_is_better }
                                     }
                                 }

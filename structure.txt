@@ -15,15 +15,92 @@
 │   ├── header.svg
 │   ├── main.css
 │   └── tailwind.css
+├── changes.md
 ├── clippy.toml
+├── docs/
+│   └── backend-cors.md
 ├── src/
+│   ├── app.rs
+│   ├── components/
+│   │   ├── badge.rs
+│   │   ├── button.rs
+│   │   ├── card.rs
+│   │   ├── definition.rs
+│   │   ├── delta_badge.rs
+│   │   ├── form_field.rs
+│   │   ├── icons.rs
+│   │   ├── mod.rs
+│   │   ├── page_header.rs
+│   │   ├── stat_tile.rs
+│   │   ├── states.rs
+│   │   ├── status_badge.rs
+│   │   └── tone.rs
 │   ├── config/
 │   │   ├── env.rs
 │   │   └── mod.rs
+│   ├── features/
+│   │   ├── charts/
+│   │   │   ├── bar_chart.rs
+│   │   │   ├── frame.rs
+│   │   │   ├── geometry.rs
+│   │   │   ├── line_chart.rs
+│   │   │   ├── mod.rs
+│   │   │   ├── palette.rs
+│   │   │   └── scale.rs
+│   │   ├── comparisons/
+│   │   │   ├── api.rs
+│   │   │   ├── mod.rs
+│   │   │   ├── models.rs
+│   │   │   ├── picker.rs
+│   │   │   ├── results.rs
+│   │   │   ├── rows.rs
+│   │   │   └── view.rs
+│   │   ├── connection/
+│   │   │   ├── client.rs
+│   │   │   ├── error.rs
+│   │   │   ├── indicator.rs
+│   │   │   ├── mod.rs
+│   │   │   ├── panel.rs
+│   │   │   └── status.rs
+│   │   ├── history/
+│   │   │   ├── api.rs
+│   │   │   ├── mod.rs
+│   │   │   ├── models.rs
+│   │   │   ├── run_row.rs
+│   │   │   ├── selection.rs
+│   │   │   └── view.rs
+│   │   ├── mod.rs
+│   │   ├── overview/
+│   │   │   ├── api.rs
+│   │   │   ├── dashboard.rs
+│   │   │   ├── latest_run.rs
+│   │   │   ├── metrics.rs
+│   │   │   ├── mod.rs
+│   │   │   ├── models.rs
+│   │   │   ├── trend_card.rs
+│   │   │   └── view.rs
+│   │   ├── run_detail/
+│   │   │   ├── api.rs
+│   │   │   ├── mod.rs
+│   │   │   ├── models.rs
+│   │   │   ├── sections.rs
+│   │   │   └── view.rs
+│   │   └── submission/
+│   │       ├── api.rs
+│   │       ├── form.rs
+│   │       ├── mod.rs
+│   │       ├── models.rs
+│   │       └── view.rs
+│   ├── format.rs
 │   ├── main.rs
-│   └── schemas/
-│       ├── env.rs
-│       └── mod.rs
+│   ├── schemas/
+│   │   ├── env.rs
+│   │   └── mod.rs
+│   └── shell/
+│       ├── mod.rs
+│       ├── not_found.rs
+│       ├── sidebar.rs
+│       └── top_bar.rs
 ├── structure.txt
 ├── tailwind.css
 └── xtask/
@@ -31,4 +108,4 @@
     └── src/
         └── main.rs
 
-7 directories, 23 files
+18 directories, 89 files

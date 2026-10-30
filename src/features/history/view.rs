@@ -15,7 +15,7 @@ use crate::{
     features::connection::{ApiError, ApiErrorPanel},
 };
 
-const HEADER_CELL: &str = "px-(--space-3) py-(--space-2) text-(length:--fs-xs) font-(weight:--fw-medium) uppercase tracking-wider text-(color:--clr-text-faint)";
+const HEADER_CELL: &str = "px-(--space-3) py-(--space-2) text-(length:--fs-2xs) font-(weight:--fw-medium) uppercase tracking-wider whitespace-nowrap text-(color:--clr-text-faint)";
 
 #[derive(Debug, Clone, PartialEq)]
 enum Phase {
@@ -106,6 +106,11 @@ pub fn History() -> Element {
     };
 
     let loading_more = matches!(current_phase, Phase::LoadingMore);
+    let bar_border = if can_compare {
+        "border-(color:--clr-accent)"
+    } else {
+        "border-(color:--clr-border)"
+    };
 
     let body: Element = match current_phase.clone() {
         Phase::Loading => rsx! {
@@ -143,7 +148,7 @@ pub fn History() -> Element {
                     }
                     div { class: "overflow-x-auto",
                         table { class: "w-full min-w-(--table-min-width) border-collapse text-left text-(length:--fs-sm)",
-                            thead {
+                            thead { class: "bg-(--clr-surface-raised)",
                                 tr {
                                     th { class: "{HEADER_CELL}", span { class: "sr-only", "Select" } }
                                     th { class: "{HEADER_CELL}", "Run" }
@@ -171,7 +176,7 @@ pub fn History() -> Element {
                             }
                         }
                     }
-                    div { class: "flex flex-col items-center justify-between gap-(--space-3) border-t border-(color:--clr-border) px-(--space-5) py-(--space-4) sm:flex-row",
+                    div { class: "flex flex-col items-center justify-between gap-(--space-3) border-t border-(color:--clr-border) px-(--space-4) py-(--space-3) sm:flex-row",
                         span { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)",
                             "Showing {run_count} runs"
                         }
@@ -204,10 +209,10 @@ pub fn History() -> Element {
                 "New benchmark"
             }
         }
-        div { class: "flex flex-col gap-(--space-6)",
+        div { class: "flex flex-col gap-(--space-4)",
             Card {
                 form {
-                    class: "flex flex-col gap-(--space-3) p-(--space-4) md:flex-row md:items-end",
+                    class: "flex flex-col gap-(--space-3) p-(--space-3) md:flex-row md:items-end",
                     onsubmit: move |event| {
                         event.prevent_default();
                         applied
@@ -241,7 +246,7 @@ pub fn History() -> Element {
                             }
                         }
                     }
-                    div { class: "flex gap-(--space-2)",
+                    div { class: "flex gap-(--space-2) md:pb-5",
                         button { r#type: "submit", class: "{primary}", "Apply" }
                         button {
                             r#type: "button",
@@ -256,7 +261,7 @@ pub fn History() -> Element {
                     }
                 }
             }
-            div { class: "flex flex-col gap-(--space-3) rounded-(--round-lg) border border-(color:--clr-border) bg-(--clr-surface) px-(--space-4) py-(--space-3) sm:flex-row sm:items-center sm:justify-between",
+            div { class: "flex flex-col gap-(--space-3) rounded-(--round-lg) border bg-(--clr-surface) px-(--space-3) py-(--space-2) sm:flex-row sm:items-center sm:justify-between {bar_border}",
                 span { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)",
                     if selected_ids.is_empty() {
                         "Select two runs to compare. The first one you pick is the baseline."

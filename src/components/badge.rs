@@ -9,7 +9,7 @@ pub fn Badge(#[props(into)] label: String, #[props(default)] tone: Tone) -> Elem
 
     rsx! {
         span {
-            class: "inline-flex items-center gap-(--space-1) rounded-(--round-full) px-(--space-2) py-(--space-1) text-(length:--fs-xs) font-(weight:--fw-medium) whitespace-nowrap {tone_class}",
+            class: "inline-flex items-center gap-(--space-1) rounded-(--round-full) px-(--space-2) py-px text-(length:--fs-xs) font-(weight:--fw-medium) whitespace-nowrap {tone_class}",
             "{label}"
         }
     }

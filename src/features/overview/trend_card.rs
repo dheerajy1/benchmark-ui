@@ -26,18 +26,18 @@ pub fn TrendCard(metric: TrendMetric, trends: Vec<TrendPoint>) -> Element {
 
     rsx! {
         Card {
-            div { class: "flex items-start justify-between gap-(--space-3) px-(--space-5) pt-(--space-4)",
+            div { class: "flex items-start justify-between gap-(--space-3) px-(--space-4) pt-(--space-3)",
                 div { class: "min-w-0",
-                    h3 { class: "text-(length:--fs-base) font-(weight:--fw-semibold) text-(color:--clr-text)",
+                    h3 { class: "text-(length:--fs-sm) font-(weight:--fw-semibold) text-(color:--clr-text)",
                         "{label}"
                     }
-                    p { class: "text-(length:--fs-xs) text-(color:--clr-text-faint)", "Last {run_count} runs" }
+                    p { class: "text-(length:--fs-xs) text-(color:--clr-text-faint)", "Last {run_count} runs, oldest to newest" }
                 }
-                span { class: "text-(length:--fs-xl) font-(weight:--fw-semibold) tabular-nums {latest_class}",
+                span { class: "text-(length:--fs-lg) font-(weight:--fw-semibold) tabular-nums {latest_class}",
                     "{latest}"
                 }
             }
-            div { class: "p-(--space-4)",
+            div { class: "px-(--space-4) pt-(--space-3) pb-(--space-3)",
                 TrendChart {
                     title: label,
                     points,

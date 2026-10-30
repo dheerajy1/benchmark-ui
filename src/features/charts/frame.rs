@@ -6,65 +6,123 @@ use super::{
 };
 use crate::format::ValueFormat;
 
-// Chart geometry in SVG user units, the viewBox scales it to the available width
-pub const WIDTH: f64 = 480.0;
-pub const HEIGHT: f64 = 220.0;
-pub const MARGIN_LEFT: f64 = 60.0;
-pub const MARGIN_RIGHT: f64 = 16.0;
-pub const MARGIN_TOP: f64 = 16.0;
-pub const MARGIN_BOTTOM: f64 = 30.0;
+// Charts are drawn in two layers. The marks (lines, areas, bars) are SVG in a 0 to 100 box
+// that stretches over the plot area, so they fill any width. Every piece of text (axis labels,
+// tooltips) is plain HTML laid over the SVG, so it keeps one pixel size at any chart width.
 
-pub fn inner_width() -> f64 {
-    WIDTH - MARGIN_LEFT - MARGIN_RIGHT
-}
-
-pub fn inner_height() -> f64 {
-    HEIGHT - MARGIN_TOP - MARGIN_BOTTOM
-}
-
-pub fn baseline_y() -> f64 {
-    HEIGHT - MARGIN_BOTTOM
-}
-
-pub fn view_box() -> String {
-    format!("0 0 {WIDTH} {HEIGHT}")
-}
-
-// Vertical scale from a value domain to pixel rows, larger values are higher up
+// Vertical scale from a value domain to a percentage of the plot height, 0 is the top edge
 pub fn y_scale(domain: &Domain) -> LinearScale {
-    LinearScale::new(domain.min, domain.max, baseline_y(), MARGIN_TOP)
+    LinearScale::new(domain.min, domain.max, 100.0, 0.0)
 }
 
-// Horizontal gridlines with their value labels
-#[component]
-pub fn ChartGrid(domain: Domain, format: ValueFormat) -> Element {
-    let scale = y_scale(&domain);
-    let line_end = WIDTH - MARGIN_RIGHT;
-    let label_x = MARGIN_LEFT - 8.0;
+// Where a label sits under its position on the x axis
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum XAlign {
+    Start,
+    Center,
+    End,
+}
 
-    let rows: Vec<(f64, String)> = domain
+// Axes, dashed grid lines and the plot area that `children` is drawn into.
+// The plot has half a label of space above and below, so tick labels line up with their lines.
+#[component]
+pub fn PlotFrame(
+    domain: Domain,
+    format: ValueFormat,
+    x_labels: Vec<(String, XAlign)>,
+    children: Element,
+) -> Element {
+    let tick_labels: Vec<String> = domain
         .ticks
         .iter()
-        .map(|tick| (scale.map(*tick), format.format_axis(*tick)))
+        .map(|tick| format.format_axis(*tick))
+        .collect();
+    let line_count = tick_labels.len();
+
+    let x_items: Vec<(String, &'static str)> = x_labels
+        .into_iter()
+        .map(|(text, align)| {
+            let justify = match align {
+                XAlign::Start => "justify-start",
+                XAlign::Center => "justify-center",
+                XAlign::End => "justify-end",
+            };
+
+            (text, justify)
+        })
         .collect();
 
     rsx! {
-        g {
-            for (y , label) in rows {
-                line {
-                    x1: "{MARGIN_LEFT}",
-                    x2: "{line_end}",
-                    y1: "{y:.2}",
-                    y2: "{y:.2}",
-                    class: "stroke-(color:--clr-border)",
+        div { class: "flex w-full flex-col",
+            div { class: "flex h-(--chart-height)",
+                div { class: "flex w-14 shrink-0 flex-col-reverse justify-between",
+                    for (index , label) in tick_labels.into_iter().enumerate() {
+                        span {
+                            key: "{index}",
+                            class: "h-4 pr-(--space-2) text-right text-(length:--fs-2xs) leading-4 whitespace-nowrap tabular-nums text-(color:--clr-text-faint)",
+                            "{label}"
+                        }
+                    }
                 }
-                text {
-                    x: "{label_x}",
-                    y: "{y:.2}",
-                    dy: "0.32em",
-                    text_anchor: "end",
-                    class: "fill-(--clr-text-faint) text-(length:--fs-xs) tabular-nums",
-                    "{label}"
+                div { class: "relative min-w-0 flex-1",
+                    div { class: "absolute inset-x-0 top-2 bottom-2 flex flex-col-reverse justify-between",
+                        for index in 0..line_count {
+                            div {
+                                key: "{index}",
+                                class: "h-0 w-full border-t border-dashed border-(color:--clr-border)",
+                            }
+                        }
+                    }
+                    div { class: "absolute inset-x-0 top-2 bottom-2", {children} }
+                }
+            }
+            div { class: "flex pt-(--space-2) pl-14",
+                for (index , (text , justify)) in x_items.into_iter().enumerate() {
+                    div { key: "{index}", class: "flex min-w-0 flex-1 {justify}",
+                        span { class: "text-(length:--fs-2xs) whitespace-nowrap text-(color:--clr-text-faint)",
+                            "{text}"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Transparent columns over the plot that drive the hover tooltip and keyboard focus.
+// `labels` holds one accessible description per column.
+#[component]
+pub fn HoverZones(labels: Vec<String>, active: Signal<Option<usize>>) -> Element {
+    let mut active = active;
+    let current = active();
+
+    let zones: Vec<(usize, String, &'static str)> = labels
+        .into_iter()
+        .enumerate()
+        .map(|(index, label)| {
+            let zone_class = if current == Some(index) {
+                "h-full min-w-0 flex-1 bg-(--clr-hover-wash)"
+            } else {
+                "h-full min-w-0 flex-1"
+            };
+
+            (index, label, zone_class)
+        })
+        .collect();
+
+    rsx! {
+        div { class: "absolute inset-0 flex",
+            for (index , label , zone_class) in zones {
+                div {
+                    key: "{index}",
+                    class: "{zone_class}",
+                    "tabindex": "0",
+                    "role": "img",
+                    "aria-label": "{label}",
+                    onmouseenter: move |_| active.set(Some(index)),
+                    onmouseleave: move |_| active.set(None),
+                    onfocus: move |_| active.set(Some(index)),
+                    onblur: move |_| active.set(None),
                 }
             }
         }
@@ -90,7 +148,7 @@ pub fn ChartLegend(entries: Vec<(String, ChartTone)>) -> Element {
         .collect();
 
     rsx! {
-        ul { class: "flex flex-wrap items-center gap-(--space-4) pb-(--space-2)",
+        ul { class: "flex flex-wrap items-center gap-(--space-4) pb-(--space-3)",
             for (name , swatch) in items {
                 li { class: "flex items-center gap-(--space-2) text-(length:--fs-xs) text-(color:--clr-text-muted)",
                     span { class: "inline-block size-(--dot-size) rounded-(--round-full) {swatch}" }
@@ -108,112 +166,48 @@ pub struct TooltipLine {
     pub swatch: Option<ChartTone>,
 }
 
-// Tooltip drawn inside the SVG so it scales with the chart and needs no inline styles
+// Tooltip pinned to the top of the plot at `anchor_percent` of its width, it flips to the
+// left of the anchor on the right half so it never leaves the chart
 #[component]
-pub fn SvgTooltip(anchor_x: f64, heading: String, lines: Vec<TooltipLine>) -> Element {
-    // Approximate glyph width used to size the box, SVG cannot measure text before layout
-    const CHAR_WIDTH: f64 = 6.8;
-    const PADDING: f64 = 10.0;
-    const HEADER_HEIGHT: f64 = 24.0;
-    const ROW_HEIGHT: f64 = 16.0;
-    const SWATCH_INDENT: f64 = 14.0;
-    const MIN_WIDTH: f64 = 96.0;
-    const OFFSET: f64 = 12.0;
+pub fn ChartTooltip(anchor_percent: f64, heading: String, lines: Vec<TooltipLine>) -> Element {
+    let left = format!("{anchor_percent:.2}%");
+    let placement = if anchor_percent > 55.0 {
+        "-translate-x-full -ml-2"
+    } else {
+        "ml-2"
+    };
 
-    let widest_row = lines
-        .iter()
-        .map(|line| line.label.chars().count() + line.value.chars().count() + 3)
-        .max()
-        .unwrap_or(0);
-    let widest = widest_row.max(heading.chars().count());
-
-    let width = (widest as f64 * CHAR_WIDTH + PADDING * 2.0 + SWATCH_INDENT).max(MIN_WIDTH);
-    let height = HEADER_HEIGHT + ROW_HEIGHT * lines.len() as f64 + PADDING - 2.0;
-
-    let mut left = anchor_x + OFFSET;
-    if left + width > WIDTH - MARGIN_RIGHT {
-        left = anchor_x - OFFSET - width;
-    }
-    let left = left.max(2.0);
-    let top = MARGIN_TOP;
-
-    let heading_x = left + PADDING;
-    let heading_y = top + 17.0;
-    let value_x = left + width - PADDING;
-
-    let rows: Vec<TooltipRow> = lines
+    let rows: Vec<(String, String, Option<&'static str>)> = lines
         .into_iter()
-        .enumerate()
-        .map(|(index, line)| {
-            let row_y = top + HEADER_HEIGHT + 4.0 + ROW_HEIGHT * index as f64;
-            let label_x = if line.swatch.is_some() {
-                heading_x + SWATCH_INDENT
-            } else {
-                heading_x
-            };
-
-            TooltipRow {
-                y: format!("{row_y:.2}"),
-                label_x: format!("{label_x:.2}"),
-                swatch_x: format!("{:.2}", heading_x + 4.0),
-                swatch_y: format!("{:.2}", row_y - 4.0),
-                swatch_class: line.swatch.map(ChartTone::fill_class),
-                label: line.label,
-                value: line.value,
-            }
+        .map(|line| {
+            (
+                line.label,
+                line.value,
+                line.swatch.map(ChartTone::swatch_class),
+            )
         })
         .collect();
 
     rsx! {
-        g { class: "pointer-events-none",
-            rect {
-                x: "{left:.2}",
-                y: "{top:.2}",
-                width: "{width:.2}",
-                height: "{height:.2}",
-                rx: "6",
-                class: "fill-(--clr-surface-raised) stroke-(color:--clr-border-strong)",
-            }
-            text {
-                x: "{heading_x:.2}",
-                y: "{heading_y:.2}",
-                class: "fill-(--clr-text-muted) text-(length:--fs-xs)",
+        div {
+            class: "pointer-events-none absolute top-0 z-10 min-w-32 rounded-(--round-md) border border-(color:--clr-border-strong) bg-(--clr-surface-raised) px-(--space-3) py-(--space-2) shadow-(--shadow-popover) {placement}",
+            style: "left: {left}",
+            p { class: "pb-(--space-1) text-(length:--fs-2xs) whitespace-nowrap text-(color:--clr-text-muted)",
                 "{heading}"
             }
-            for row in rows {
-                if let Some(swatch_class) = row.swatch_class {
-                    circle {
-                        cx: "{row.swatch_x}",
-                        cy: "{row.swatch_y}",
-                        r: "4",
-                        class: "{swatch_class}",
+            for (label , value , swatch) in rows {
+                div { class: "flex items-center justify-between gap-(--space-4) text-(length:--fs-xs) whitespace-nowrap",
+                    span { class: "flex items-center gap-(--space-2) text-(color:--clr-text-muted)",
+                        if let Some(swatch_class) = swatch {
+                            span { class: "inline-block size-(--dot-size) rounded-(--round-full) {swatch_class}" }
+                        }
+                        "{label}"
                     }
-                }
-                text {
-                    x: "{row.label_x}",
-                    y: "{row.y}",
-                    class: "fill-(--clr-text-muted) text-(length:--fs-xs)",
-                    "{row.label}"
-                }
-                text {
-                    x: "{value_x:.2}",
-                    y: "{row.y}",
-                    text_anchor: "end",
-                    class: "fill-(--clr-text) text-(length:--fs-xs) tabular-nums",
-                    "{row.value}"
+                    span { class: "font-(weight:--fw-medium) tabular-nums text-(color:--clr-text)",
+                        "{value}"
+                    }
                 }
             }
         }
     }
-}
-
-// Tooltip row with every coordinate already formatted for the SVG attributes
-struct TooltipRow {
-    y: String,
-    label_x: String,
-    swatch_x: String,
-    swatch_y: String,
-    swatch_class: Option<&'static str>,
-    label: String,
-    value: String,
 }

@@ -56,7 +56,7 @@ impl TrendMetric {
             Self::P95Latency => ChartTone::Amber,
             Self::PeakMemory => ChartTone::Violet,
             Self::CpuAverage => ChartTone::Cyan,
-            Self::Startup | Self::Build => ChartTone::Green,
+            Self::Startup | Self::Build => ChartTone::Teal,
         }
     }
 
@@ -127,7 +127,11 @@ pub fn change_hint(trends: &[TrendPoint], metric: TrendMetric) -> (String, Tone)
     };
 
     (
-        format!("{} vs previous run", format_signed_percent(change)),
+        format!(
+            "{} {} vs previous run",
+            if change > 0.0 { "↑" } else { "↓" },
+            format_signed_percent(change)
+        ),
         tone,
     )
 }

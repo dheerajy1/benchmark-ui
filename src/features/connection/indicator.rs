@@ -31,14 +31,14 @@ pub fn ConnectionIndicator() -> Element {
 
     rsx! {
         div {
-            class: "flex min-w-0 items-center gap-(--space-2) rounded-(--round-full) border border-(color:--clr-border) bg-(--clr-surface) px-(--space-3) py-(--space-1)",
+            class: "flex h-6 min-w-0 items-center gap-(--space-2) rounded-(--round-full) border border-(color:--clr-border) bg-(--clr-surface) px-(--space-3)",
             role: "status",
             title: "{url}",
             span { class: "inline-block size-(--dot-size) shrink-0 rounded-(--round-full) {dot_class}" }
-            span { class: "truncate text-(length:--fs-xs) font-(weight:--fw-medium) {text_class}",
+            span { class: "shrink-0 text-(length:--fs-xs) font-(weight:--fw-medium) {text_class}",
                 "{label}"
             }
-            span { class: "hidden truncate font-(family-name:--font-code) text-(length:--fs-xs) text-(color:--clr-text-faint) md:inline",
+            span { class: "hidden max-w-48 truncate border-l border-(color:--clr-border) pl-(--space-2) font-(family-name:--font-code) text-(length:--fs-2xs) text-(color:--clr-text-faint) md:inline xl:max-w-80",
                 "{url}"
             }
         }

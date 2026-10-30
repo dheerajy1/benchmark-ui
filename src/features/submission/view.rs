@@ -7,8 +7,8 @@ use super::{
 use crate::{
     app::Route,
     components::{
-        button_class, ButtonVariant, Card, CardHeader, FormField, Icon, IconKind, PageHeader,
-        StatTile, INPUT_CLASS,
+        button_class, Badge, ButtonVariant, Card, CardHeader, FormField, Icon, IconKind,
+        PageHeader, StatTile, Tone, INPUT_CLASS,
     },
     features::{
         connection::{ApiError, ApiErrorPanel},
@@ -46,8 +46,12 @@ fn Finished(result: BenchmarkResult, on_reset: EventHandler<()>) -> Element {
                 title: "Benchmark completed",
                 subtitle: "The result is stored and appears in the run history.",
             }
-            div { class: "flex flex-col gap-(--space-5) p-(--space-5)",
-                div { class: "grid grid-cols-2 gap-(--space-4)",
+            div { class: "flex flex-col gap-(--space-4) p-(--space-4)",
+                div { class: "flex items-center gap-(--space-2) text-(length:--fs-xs) text-(color:--clr-text-muted)",
+                    Badge { label: "Completed", tone: Tone::Success }
+                    span { class: "font-(family-name:--font-code)", "Run {short}" }
+                }
+                div { class: "grid grid-cols-2 gap-(--space-3)",
                     StatTile { label: "Throughput", value: throughput }
                     StatTile { label: "p95 latency", value: p95 }
                 }
@@ -119,7 +123,7 @@ pub fn Submission() -> Element {
         },
         Phase::Editing | Phase::Running => rsx! {
             form {
-                class: "flex max-w-(--form-max) flex-col gap-(--space-6)",
+                class: "flex flex-col gap-(--space-4)",
                 onsubmit: move |event| {
                     event.prevent_default();
                     submit(());
@@ -129,7 +133,7 @@ pub fn Submission() -> Element {
                         title: "Target",
                         subtitle: "The project directory on the machine running benchmark-api.",
                     }
-                    div { class: "p-(--space-5)",
+                    div { class: "p-(--space-4)",
                         FormField {
                             label: "Project path",
                             hint: "Absolute path, for example /home/me/projects/my-api",
@@ -149,11 +153,11 @@ pub fn Submission() -> Element {
                         title: "Startup",
                         subtitle: "How to start the target and when it counts as ready. Optional.",
                     }
-                    div { class: "flex flex-col gap-(--space-4) p-(--space-5)",
-                        label { class: "flex items-center gap-(--space-2) text-(length:--fs-sm) text-(color:--clr-text)",
+                    div { class: "flex flex-col gap-(--space-4) p-(--space-4)",
+                        label { class: "flex cursor-pointer items-center gap-(--space-3) rounded-(--round-md) border border-(color:--clr-border) bg-(--clr-surface-raised) px-(--space-3) py-(--space-2) text-(length:--fs-sm) text-(color:--clr-text) transition-colors hover:border-(color:--clr-border-strong)",
                             input {
                                 r#type: "checkbox",
-                                class: "size-(--icon-sm) accent-(--clr-accent)",
+                                class: "size-4 cursor-pointer accent-(--clr-primary)",
                                 checked: state.startup_enabled,
                                 disabled: running,
                                 onchange: move |event| form.with_mut(|f| f.startup_enabled = event.checked()),
@@ -241,11 +245,11 @@ pub fn Submission() -> Element {
                         title: "Workload",
                         subtitle: "HTTP load sent to the running target. Optional, needed for latency, memory and CPU.",
                     }
-                    div { class: "flex flex-col gap-(--space-4) p-(--space-5)",
-                        label { class: "flex items-center gap-(--space-2) text-(length:--fs-sm) text-(color:--clr-text)",
+                    div { class: "flex flex-col gap-(--space-4) p-(--space-4)",
+                        label { class: "flex cursor-pointer items-center gap-(--space-3) rounded-(--round-md) border border-(color:--clr-border) bg-(--clr-surface-raised) px-(--space-3) py-(--space-2) text-(length:--fs-sm) text-(color:--clr-text) transition-colors hover:border-(color:--clr-border-strong)",
                             input {
                                 r#type: "checkbox",
-                                class: "size-(--icon-sm) accent-(--clr-accent)",
+                                class: "size-4 cursor-pointer accent-(--clr-primary)",
                                 checked: state.workload_enabled,
                                 disabled: running,
                                 onchange: move |event| form.with_mut(|f| f.workload_enabled = event.checked()),
@@ -334,15 +338,18 @@ pub fn Submission() -> Element {
                         }
                     }
                     if running {
-                        p {
-                            class: "text-(length:--fs-sm) text-(color:--clr-text-muted)",
+                        div {
+                            class: "flex w-full items-start gap-(--space-3) rounded-(--round-md) border border-(color:--clr-border) bg-(--clr-surface) px-(--space-3) py-(--space-3)",
                             role: "status",
-                            "The API is building, starting and measuring the target. This can take several minutes, keep this tab open."
+                            span { class: "mt-(--space-1) inline-block size-4 shrink-0 animate-spin rounded-(--round-full) border-2 border-(color:--clr-border-strong) border-t-(color:--clr-accent)" }
+                            p { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)",
+                                "The API is building, starting and measuring the target. This can take several minutes, keep this tab open."
+                            }
                         }
                     }
                     if !current_errors.is_empty() {
                         p {
-                            class: "text-(length:--fs-sm) text-(color:--clr-danger)",
+                            class: "w-full rounded-(--round-md) border border-(color:--clr-danger) bg-(--clr-danger-soft) px-(--space-3) py-(--space-2) text-(length:--fs-sm) text-(color:--clr-danger)",
                             role: "alert",
                             "Fix the highlighted fields and try again."
                         }
@@ -354,11 +361,13 @@ pub fn Submission() -> Element {
 
     rsx! {
         document::Title { "New benchmark · Benchmark" }
-        PageHeader {
-            title: "New benchmark",
-            description: "Build, start and measure a project. The result is stored in the run history.",
-            Link { to: Route::History {}, class: "{secondary}", "All runs" }
+        div { class: "mx-auto w-full max-w-(--form-max)",
+            PageHeader {
+                title: "New benchmark",
+                description: "Build, start and measure a project. The result is stored in the run history.",
+                Link { to: Route::History {}, class: "{secondary}", "All runs" }
+            }
+            {body}
         }
-        {body}
     }
 }

@@ -50,7 +50,7 @@ fn Headline(result: BenchmarkResult) -> Element {
         .map_or_else(|| MISSING.to_string(), |ms| format_duration_ms(ms as f64));
 
     rsx! {
-        div { class: "grid grid-cols-2 gap-(--space-4) md:grid-cols-3 xl:grid-cols-6",
+        div { class: "grid grid-cols-2 gap-(--space-3) md:grid-cols-3 xl:grid-cols-6",
             StatTile { label: "Throughput", value: throughput }
             StatTile { label: "p95 latency", value: p95 }
             StatTile { label: "Peak memory", value: memory }
@@ -92,8 +92,8 @@ pub fn RunDetail(run_id: String) -> Element {
             let metrics = result.metrics.clone();
 
             rsx! {
-                div { class: "flex flex-col gap-(--space-6)",
-                    div { class: "flex flex-wrap items-center gap-(--space-3) text-(length:--fs-sm) text-(color:--clr-text-muted)",
+                div { class: "flex flex-col gap-(--space-4)",
+                    div { class: "flex flex-wrap items-center gap-(--space-3) text-(length:--fs-xs) text-(color:--clr-text-muted)",
                         if let Some(runtime) = runtime {
                             Badge { label: runtime, tone: Tone::Accent }
                         }

@@ -57,22 +57,19 @@ pub fn HttpSection(latency: Option<HttpLatency>) -> Element {
                 title: "HTTP latency",
                 subtitle: "Response time percentiles under the configured workload.",
             }
-            div { class: "flex flex-col gap-(--space-5) p-(--space-5)",
-                dl { class: "grid grid-cols-2 gap-(--space-4) md:grid-cols-5",
+            div { class: "flex flex-col gap-(--space-4) p-(--space-4)",
+                dl { class: "grid grid-cols-2 gap-(--space-4) md:grid-cols-6",
                     Definition { label: "Status", StatusBadge { status: latency.status.clone() } }
                     Definition { label: "Requests", "{total}" }
                     Definition { label: "Succeeded", "{succeeded}" }
                     Definition { label: "Failed", "{failed}" }
                     Definition { label: "Duration", "{duration}" }
+                    Definition { label: "Throughput", "{rate} /s" }
                 }
                 if partial {
-                    p { class: "rounded-(--round-md) bg-(--clr-warning-soft) px-(--space-3) py-(--space-2) text-(length:--fs-sm) text-(color:--clr-warning)",
+                    p { class: "rounded-(--round-md) border border-(color:--clr-warning) bg-(--clr-warning-soft) px-(--space-3) py-(--space-2) text-(length:--fs-sm) text-(color:--clr-warning)",
                         "The target exited during the workload, so these numbers are partial and not a completed benchmark."
                     }
-                }
-                p { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)",
-                    "Throughput "
-                    span { class: "font-(weight:--fw-semibold) text-(color:--clr-text)", "{rate} requests/s" }
                 }
                 BarChart {
                     title: "Latency percentiles",
@@ -107,7 +104,7 @@ pub fn ResourceSection(memory: Option<Memory>, cpu: Option<Cpu>) -> Element {
         div { class: "grid grid-cols-1 gap-(--space-4) lg:grid-cols-2",
             Card {
                 CardHeader { title: "Memory", subtitle: "Resident set size of the target process group." }
-                div { class: "p-(--space-4)",
+                div { class: "p-(--space-4) pb-(--space-3)",
                     if let Some(groups) = memory_groups {
                         BarChart {
                             title: "Memory",
@@ -124,7 +121,7 @@ pub fn ResourceSection(memory: Option<Memory>, cpu: Option<Cpu>) -> Element {
             }
             Card {
                 CardHeader { title: "CPU", subtitle: "100% is one fully used core." }
-                div { class: "p-(--space-4)",
+                div { class: "p-(--space-4) pb-(--space-3)",
                     if let Some(groups) = cpu_groups {
                         BarChart {
                             title: "CPU",
@@ -177,27 +174,27 @@ fn StepCard(#[props(into)] title: String, step: StepResult) -> Element {
     rsx! {
         Card {
             CardHeader { title }
-            dl { class: "grid grid-cols-2 gap-(--space-4) p-(--space-5)",
+            dl { class: "grid grid-cols-2 gap-(--space-4) p-(--space-4)",
                 Definition { label: "Status", StatusBadge { status: step.status.clone() } }
                 Definition { label: "Duration", "{duration}" }
                 if let Some(command) = command {
                     div { class: "col-span-2",
                         Definition { label: "Command",
-                            code { class: "font-(family-name:--font-code) text-(length:--fs-sm)", "{command}" }
+                            code { class: "font-(family-name:--font-code) text-(length:--fs-xs) break-all", "{command}" }
                         }
                     }
                 }
                 if let Some(directory) = step.working_directory.clone() {
                     div { class: "col-span-2",
                         Definition { label: "Working directory",
-                            code { class: "font-(family-name:--font-code) text-(length:--fs-sm)", "{directory}" }
+                            code { class: "font-(family-name:--font-code) text-(length:--fs-xs) break-all", "{directory}" }
                         }
                     }
                 }
                 if let Some(readiness) = readiness {
                     div { class: "col-span-2",
                         Definition { label: "Readiness probe",
-                            code { class: "font-(family-name:--font-code) text-(length:--fs-sm)", "{readiness}" }
+                            code { class: "font-(family-name:--font-code) text-(length:--fs-xs) break-all", "{readiness}" }
                         }
                     }
                 }
@@ -255,11 +252,11 @@ pub fn ArtifactSection(artifacts: ArtifactSize) -> Element {
     rsx! {
         Card {
             CardHeader { title: "Artifact size", subtitle: "What was measured on disk for the target." }
-            div { class: "grid grid-cols-1 gap-(--space-5) p-(--space-5) lg:grid-cols-2",
+            div { class: "grid grid-cols-1 gap-(--space-5) p-(--space-4) lg:grid-cols-2",
                 div { class: "overflow-x-auto",
                     table { class: "w-full text-left text-(length:--fs-sm)",
                         thead {
-                            tr { class: "text-(length:--fs-xs) uppercase tracking-wider text-(color:--clr-text-faint)",
+                            tr { class: "text-(length:--fs-2xs) uppercase tracking-wider text-(color:--clr-text-faint)",
                                 th { class: "py-(--space-2) pr-(--space-3) font-(weight:--fw-medium)", "Category" }
                                 th { class: "py-(--space-2) pr-(--space-3) text-right font-(weight:--fw-medium)", "Size" }
                                 th { class: "py-(--space-2) text-right font-(weight:--fw-medium)", "Files" }
@@ -268,11 +265,11 @@ pub fn ArtifactSection(artifacts: ArtifactSize) -> Element {
                         tbody {
                             for (label , category) in rows {
                                 tr { class: "border-t border-(color:--clr-border)",
-                                    td { class: "py-(--space-3) pr-(--space-3)", "{label}" }
-                                    td { class: "py-(--space-3) pr-(--space-3) text-right tabular-nums",
+                                    td { class: "py-(--space-2) pr-(--space-3)", "{label}" }
+                                    td { class: "py-(--space-2) pr-(--space-3) text-right tabular-nums",
                                         span { title: "{category.exact}", "{category.size}" }
                                     }
-                                    td { class: "py-(--space-3) text-right tabular-nums", "{category.files}" }
+                                    td { class: "py-(--space-2) text-right tabular-nums", "{category.files}" }
                                 }
                             }
                         }

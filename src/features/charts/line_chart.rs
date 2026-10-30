@@ -1,10 +1,7 @@
 use dioxus::prelude::*;
 
 use super::{
-    frame::{
-        baseline_y, inner_height, inner_width, view_box, y_scale, ChartEmpty, ChartGrid,
-        SvgTooltip, TooltipLine, HEIGHT, MARGIN_LEFT, MARGIN_RIGHT, MARGIN_TOP, WIDTH,
-    },
+    frame::{y_scale, ChartEmpty, ChartTooltip, HoverZones, PlotFrame, TooltipLine, XAlign},
     geometry,
     palette::ChartTone,
     scale::nice_domain,
@@ -21,12 +18,11 @@ pub struct SeriesPoint {
     pub value: Option<f64>,
 }
 
-// Invisible hit area that drives the hover tooltip and keyboard focus
-struct HoverZone {
-    index: usize,
-    x: String,
-    width: String,
-    label: String,
+// Dot on the line, positions are percentages of the plot area
+struct Dot {
+    left: String,
+    top: String,
+    class: String,
 }
 
 // Line and area mark over evenly spaced points, gaps stay gaps and are never drawn as zero
@@ -37,7 +33,7 @@ pub fn TrendChart(
     format: ValueFormat,
     #[props(default)] tone: ChartTone,
 ) -> Element {
-    let mut hovered = use_signal(|| None::<usize>);
+    let hovered = use_signal(|| None::<usize>);
 
     let present: Vec<f64> = points.iter().filter_map(|point| point.value).collect();
 
@@ -53,27 +49,20 @@ pub fn TrendChart(
     let scale = y_scale(&domain);
 
     let count = points.len();
-    let step = if count > 1 {
-        inner_width() / (count - 1) as f64
-    } else {
-        0.0
-    };
-    let x_at = |index: usize| {
-        if count > 1 {
-            MARGIN_LEFT + step * index as f64
-        } else {
-            MARGIN_LEFT + inner_width() / 2.0
-        }
-    };
+    // Every point owns an equal column, so hover zones and marks always line up
+    let x_percent = |index: usize| (index as f64 + 0.5) / count as f64 * 100.0;
 
     let coordinates: Vec<Option<(f64, f64)>> = points
         .iter()
         .enumerate()
-        .map(|(index, point)| point.value.map(|value| (x_at(index), scale.map(value))))
+        .map(|(index, point)| {
+            point
+                .value
+                .map(|value| (x_percent(index), scale.map(value)))
+        })
         .collect();
 
     let runs = geometry::segments(&coordinates);
-    let baseline = baseline_y();
 
     let line_paths: Vec<String> = runs
         .iter()
@@ -83,41 +72,45 @@ pub fn TrendChart(
     let area_paths: Vec<String> = runs
         .iter()
         .filter(|run| run.len() >= 2)
-        .map(|run| geometry::area_path(run, baseline))
-        .collect();
-
-    let dots: Vec<(String, String)> = coordinates
-        .iter()
-        .flatten()
-        .map(|(x, y)| (format!("{x:.2}"), format!("{y:.2}")))
-        .collect();
-
-    let zone_width = if count > 1 { step } else { inner_width() };
-    let zones: Vec<HoverZone> = points
-        .iter()
-        .enumerate()
-        .map(|(index, point)| {
-            let left = (x_at(index) - zone_width / 2.0).max(MARGIN_LEFT);
-
-            HoverZone {
-                index,
-                x: format!("{left:.2}"),
-                width: format!("{zone_width:.2}"),
-                label: format!(
-                    "{}: {}",
-                    point.detail_label,
-                    format_optional(point.value, format)
-                ),
-            }
-        })
+        .map(|run| geometry::area_path(run, 100.0))
         .collect();
 
     let active = hovered();
 
-    let guide_x = active.map(|index| format!("{:.2}", x_at(index)));
-    let active_dot = active
-        .and_then(|index| coordinates.get(index).copied().flatten())
-        .map(|(x, y)| (format!("{x:.2}"), format!("{y:.2}")));
+    let swatch = tone.swatch_class();
+    let dots: Vec<Dot> = coordinates
+        .iter()
+        .enumerate()
+        .filter_map(|(index, coordinate)| {
+            let (x, y) = (*coordinate)?;
+            let size_class = if active == Some(index) {
+                "size-3 border-2"
+            } else {
+                "size-2 border"
+            };
+
+            Some(Dot {
+                left: format!("{x:.2}%"),
+                top: format!("{y:.2}%"),
+                class: format!(
+                    "pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-(--round-full) border-(color:--clr-surface) {size_class} {swatch}"
+                ),
+            })
+        })
+        .collect();
+
+    let zone_labels: Vec<String> = points
+        .iter()
+        .map(|point| {
+            format!(
+                "{}: {}",
+                point.detail_label,
+                format_optional(point.value, format)
+            )
+        })
+        .collect();
+
+    let guide_left = active.map(|index| format!("{:.2}%", x_percent(index)));
     let tooltip = active.and_then(|index| {
         points.get(index).map(|point| {
             let lines = vec![TooltipLine {
@@ -126,115 +119,67 @@ pub fn TrendChart(
                 swatch: Some(tone),
             }];
 
-            (x_at(index), point.detail_label.clone(), lines)
+            (x_percent(index), point.detail_label.clone(), lines)
         })
     });
 
-    let first_label = points
-        .first()
-        .map(|point| point.axis_label.clone())
-        .unwrap_or_default();
-    let last_label = points
-        .last()
-        .map(|point| point.axis_label.clone())
-        .unwrap_or_default();
+    // Only the first and last point carry an axis label, the rest stay empty
+    let x_labels: Vec<(String, XAlign)> = points
+        .iter()
+        .enumerate()
+        .map(|(index, point)| {
+            if count == 1 {
+                (point.axis_label.clone(), XAlign::Center)
+            } else if index == 0 {
+                (point.axis_label.clone(), XAlign::Start)
+            } else if index + 1 == count {
+                (point.axis_label.clone(), XAlign::End)
+            } else {
+                (String::new(), XAlign::Center)
+            }
+        })
+        .collect();
 
-    let view_box_value = view_box();
-    let plot_top = MARGIN_TOP;
-    let plot_height = inner_height();
-    let axis_y = HEIGHT - 8.0;
-    let axis_end_x = WIDTH - MARGIN_RIGHT;
-    let center_x = MARGIN_LEFT + inner_width() / 2.0;
-    let guide_bottom = baseline;
     let stroke = tone.stroke_class();
-    let fill = tone.fill_class();
     let soft = tone.soft_fill_class();
 
     rsx! {
-        svg {
-            class: "h-auto w-full",
-            view_box: "{view_box_value}",
-            "role": "group",
-            "aria-label": "{title}",
-            ChartGrid { domain: domain.clone(), format }
-            for d in area_paths {
-                path { d: "{d}", class: "{soft} stroke-none" }
-            }
-            for d in line_paths {
-                path {
-                    d: "{d}",
-                    stroke_linejoin: "round",
-                    stroke_linecap: "round",
-                    class: "fill-none stroke-2 {stroke}",
+        div { class: "w-full", "role": "group", "aria-label": "{title}",
+            PlotFrame { domain: domain.clone(), format, x_labels,
+                svg {
+                    class: "absolute inset-0 h-full w-full",
+                    view_box: "0 0 100 100",
+                    "preserveAspectRatio": "none",
+                    "aria-hidden": "true",
+                    for d in area_paths {
+                        path { d: "{d}", class: "{soft} stroke-none" }
+                    }
+                    for d in line_paths {
+                        path {
+                            d: "{d}",
+                            stroke_linejoin: "round",
+                            stroke_linecap: "round",
+                            class: "vector-fixed fill-none stroke-2 {stroke}",
+                        }
+                    }
                 }
-            }
-            for (cx , cy) in dots {
-                circle {
-                    cx: "{cx}",
-                    cy: "{cy}",
-                    r: "3",
-                    class: "{fill} stroke-(color:--clr-surface) stroke-1",
+                if let Some(left) = guide_left {
+                    div {
+                        class: "pointer-events-none absolute inset-y-0 w-px bg-(--clr-border-strong)",
+                        style: "left: {left}",
+                    }
                 }
-            }
-            if count > 1 {
-                text {
-                    x: "{MARGIN_LEFT}",
-                    y: "{axis_y}",
-                    text_anchor: "start",
-                    class: "fill-(--clr-text-faint) text-(length:--fs-xs)",
-                    "{first_label}"
+                for (index , dot) in dots.into_iter().enumerate() {
+                    span {
+                        key: "{index}",
+                        class: "{dot.class}",
+                        style: "left: {dot.left}; top: {dot.top}",
+                    }
                 }
-                text {
-                    x: "{axis_end_x}",
-                    y: "{axis_y}",
-                    text_anchor: "end",
-                    class: "fill-(--clr-text-faint) text-(length:--fs-xs)",
-                    "{last_label}"
+                HoverZones { labels: zone_labels, active: hovered }
+                if let Some((anchor_percent , heading , lines)) = tooltip {
+                    ChartTooltip { anchor_percent, heading, lines }
                 }
-            } else {
-                text {
-                    x: "{center_x}",
-                    y: "{axis_y}",
-                    text_anchor: "middle",
-                    class: "fill-(--clr-text-faint) text-(length:--fs-xs)",
-                    "{first_label}"
-                }
-            }
-            if let Some(x) = guide_x {
-                line {
-                    x1: "{x}",
-                    x2: "{x}",
-                    y1: "{plot_top}",
-                    y2: "{guide_bottom}",
-                    class: "stroke-(color:--clr-border-strong)",
-                }
-            }
-            if let Some((cx , cy)) = active_dot {
-                circle {
-                    cx: "{cx}",
-                    cy: "{cy}",
-                    r: "5",
-                    class: "{fill} stroke-(color:--clr-surface) stroke-2",
-                }
-            }
-            for zone in zones {
-                rect {
-                    x: "{zone.x}",
-                    y: "{plot_top}",
-                    width: "{zone.width}",
-                    height: "{plot_height}",
-                    class: "fill-transparent",
-                    "tabindex": "0",
-                    "role": "img",
-                    "aria-label": "{zone.label}",
-                    onmouseenter: move |_| hovered.set(Some(zone.index)),
-                    onmouseleave: move |_| hovered.set(None),
-                    onfocus: move |_| hovered.set(Some(zone.index)),
-                    onblur: move |_| hovered.set(None),
-                }
-            }
-            if let Some((anchor_x , heading , lines)) = tooltip {
-                SvgTooltip { anchor_x, heading, lines }
             }
         }
     }

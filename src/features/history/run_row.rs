@@ -7,8 +7,8 @@ use crate::{
     format::{format_optional, format_timestamp, path_tail, short_id, ValueFormat, MISSING},
 };
 
-const CELL: &str = "px-(--space-3) py-(--space-3) align-middle";
-const NUMBER_CELL: &str = "px-(--space-3) py-(--space-3) text-right align-middle tabular-nums";
+const CELL: &str = "px-(--space-3) py-(--space-2) align-middle";
+const NUMBER_CELL: &str = "px-(--space-3) py-(--space-2) text-right align-middle whitespace-nowrap tabular-nums text-(color:--clr-text)";
 
 // One table row of the history list
 #[component]
@@ -37,9 +37,9 @@ pub fn RunRow(run: RunSummary, selected: bool, on_toggle: EventHandler<String>) 
     let p95 = format_optional(metrics.p95_ms, ValueFormat::LatencyMs);
 
     let row_class = if selected {
-        "border-t border-(color:--clr-border) bg-(--clr-accent-soft)"
+        "border-t border-(color:--clr-border) bg-(--clr-accent-soft) shadow-[inset_2px_0_0_var(--clr-accent)]"
     } else {
-        "border-t border-(color:--clr-border) hover:bg-(--clr-surface-hover)"
+        "border-t border-(color:--clr-border) transition-colors hover:bg-(--clr-surface-hover)"
     };
 
     rsx! {
@@ -47,7 +47,7 @@ pub fn RunRow(run: RunSummary, selected: bool, on_toggle: EventHandler<String>) 
             td { class: "{CELL}",
                 input {
                     r#type: "checkbox",
-                    class: "size-(--icon-sm) cursor-pointer accent-(--clr-accent)",
+                    class: "size-4 cursor-pointer accent-(--clr-primary)",
                     checked: selected,
                     "aria-label": "Select run {short} for comparison",
                     onchange: move |_| on_toggle.call(id.clone()),
@@ -58,10 +58,10 @@ pub fn RunRow(run: RunSummary, selected: bool, on_toggle: EventHandler<String>) 
                     to: Route::RunDetail {
                         run_id: run.run_id.clone(),
                     },
-                    class: "font-(family-name:--font-code) text-(color:--clr-accent) hover:underline",
+                    class: "font-(family-name:--font-code) text-(length:--fs-sm) text-(color:--clr-accent) hover:underline",
                     "{short}"
                 }
-                div { class: "text-(length:--fs-xs) text-(color:--clr-text-faint)", "{created}" }
+                div { class: "text-(length:--fs-2xs) whitespace-nowrap text-(color:--clr-text-faint)", "{created}" }
             }
             td { class: "{CELL}",
                 span {

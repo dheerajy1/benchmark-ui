@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
 
 use crate::{
-    components::{FormField, INPUT_CLASS},
-    features::history::RunSummary,
+    components::INPUT_CLASS,
+    features::{charts::ChartTone, history::RunSummary},
     format::{date_part, path_tail, short_id, MISSING},
 };
 
@@ -16,12 +16,14 @@ fn option_label(run: &RunSummary) -> String {
     )
 }
 
-// Select listing the newest runs, keeps an id that is not in the list selectable
+// Select listing the newest runs, keeps an id that is not in the list selectable.
+// The dot in front of the label uses the same color as that run in the charts.
 #[component]
 pub fn RunPicker(
     #[props(into)] label: String,
     value: String,
     runs: Vec<RunSummary>,
+    tone: ChartTone,
     on_change: EventHandler<String>,
 ) -> Element {
     let listed = runs.iter().any(|run| run.run_id == value);
@@ -35,9 +37,14 @@ pub fn RunPicker(
         .map(|run| (run.run_id.clone(), option_label(run), run.run_id == value))
         .collect();
     let value_for_unlisted = value.clone();
+    let swatch = tone.swatch_class();
 
     rsx! {
-        FormField { label,
+        label { class: "flex min-w-0 flex-col gap-(--space-1)",
+            span { class: "flex items-center gap-(--space-2) text-(length:--fs-xs) font-(weight:--fw-medium) text-(color:--clr-text-muted)",
+                span { class: "inline-block size-(--dot-size) rounded-(--round-full) {swatch}" }
+                "{label}"
+            }
             select {
                 class: "{INPUT_CLASS}",
                 onchange: move |event| on_change.call(event.value()),

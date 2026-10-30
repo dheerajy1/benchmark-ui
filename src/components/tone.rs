@@ -26,13 +26,4 @@ impl Tone {
             Self::Danger => "text-(color:--clr-danger)",
         }
     }
-
-    pub fn dot_class(self) -> &'static str {
-        match self {
-            Self::Neutral => "bg-(--clr-text-faint)",
-            Self::Accent => "bg-(--clr-accent)",
-            Self::Success => "bg-(--clr-success)",
-            Self::Danger => "bg-(--clr-danger)",
-        }
-    }
 }

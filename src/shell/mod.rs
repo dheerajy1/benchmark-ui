@@ -30,7 +30,7 @@ pub fn AppShell() -> Element {
                 main {
                     id: "main",
                     "tabindex": "-1",
-                    class: "mx-auto w-full max-w-(--content-max) flex-1 p-(--space-4) sm:p-(--space-6) lg:p-(--space-8)",
+                    class: "mx-auto w-full max-w-(--content-max) flex-1 px-(--space-4) py-(--space-5) sm:px-(--space-6) lg:px-(--space-8)",
                     Outlet::<Route> {}
                 }
             }

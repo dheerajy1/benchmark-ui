@@ -9,6 +9,7 @@ use crate::{
         button_class, ButtonVariant, Card, EmptyState, Icon, IconKind, LoadingPanel, PageHeader,
     },
     features::{
+        charts::ChartTone,
         connection::{ApiError, ApiErrorPanel},
         history::fetch_recent_runs,
     },
@@ -58,10 +59,11 @@ pub fn Comparisons(baseline: String, comparison: String) -> Element {
 
             rsx! {
                 Card {
-                    div { class: "flex flex-col gap-(--space-4) p-(--space-4) md:flex-row md:items-end",
+                    div { class: "flex flex-col gap-(--space-3) p-(--space-3) md:flex-row md:items-end",
                         div { class: "min-w-0 md:flex-1",
                             RunPicker {
                                 label: "Baseline",
+                                tone: ChartTone::Slate,
                                 value: baseline.clone(),
                                 runs: page.items.clone(),
                                 on_change: move |id: String| {
@@ -77,6 +79,7 @@ pub fn Comparisons(baseline: String, comparison: String) -> Element {
                             r#type: "button",
                             class: "{secondary}",
                             "aria-label": "Swap baseline and comparison",
+                            title: "Swap baseline and comparison",
                             onclick: move |_| {
                                 let _ = nav
                                     .push(Route::Comparisons {
@@ -90,6 +93,7 @@ pub fn Comparisons(baseline: String, comparison: String) -> Element {
                         div { class: "min-w-0 md:flex-1",
                             RunPicker {
                                 label: "Comparison",
+                                tone: ChartTone::Blue,
                                 value: comparison.clone(),
                                 runs: page.items.clone(),
                                 on_change: move |id: String| {
@@ -143,7 +147,7 @@ pub fn Comparisons(baseline: String, comparison: String) -> Element {
             description: "See what changed between a baseline run and a newer one.",
             Link { to: Route::History {}, class: "{secondary}", "Browse runs" }
         }
-        div { class: "flex flex-col gap-(--space-6)",
+        div { class: "flex flex-col gap-(--space-4)",
             {pickers}
             {body}
         }

@@ -45,15 +45,25 @@ pub fn DeltaBadge(change: Option<f64>, lower_is_better: bool) -> Element {
 
     let label = format_signed_percent(change);
     let tone_class = tone.text_class();
-    let dot_class = tone.dot_class();
+    let badge_class = tone.badge_class();
+    let arrow = if change.abs() < UNCHANGED_THRESHOLD_PERCENT {
+        "→"
+    } else if change > 0.0 {
+        "↑"
+    } else {
+        "↓"
+    };
 
     rsx! {
         span {
-            class: "inline-flex items-center gap-(--space-1) text-(length:--fs-sm) font-(weight:--fw-medium) tabular-nums {tone_class}",
+            class: "inline-flex items-center justify-end gap-(--space-2) text-(length:--fs-sm) tabular-nums",
             title: "{word}",
-            span { class: "inline-block size-(--dot-size) rounded-(--round-full) {dot_class}" }
-            "{label}"
-            span { class: "sr-only", "{word}" }
+            span { class: "inline-flex items-center gap-(--space-1) rounded-(--round-full) px-(--space-2) py-px font-(weight:--fw-medium) {badge_class}",
+                span { "aria-hidden": "true", "{arrow}" }
+                "{label}"
+            }
+            span { class: "hidden w-18 text-left text-(length:--fs-xs) lg:inline {tone_class}", "{word}" }
+            span { class: "sr-only lg:hidden", "{word}" }
         }
     }
 }

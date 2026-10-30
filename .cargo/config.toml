@@ -2,3 +2,4 @@
 xtask = "run --package xtask --"
 dev = "xtask dev"
 start = "xtask start"
+build-prod = "xtask build"

@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::{
     app::Route,
-    components::{button_class, Badge, ButtonVariant, Card, CardHeader, Definition, Tone},
+    components::{button_class, Badge, ButtonVariant, Card, Definition, Icon, IconKind, Tone},
     features::history::RunSummary,
     format::{format_timestamp, short_id, MISSING},
 };
@@ -17,11 +17,37 @@ pub fn LatestRun(run: RunSummary, previous_run_id: Option<String>) -> Element {
 
     rsx! {
         Card {
-            CardHeader {
-                title: "Latest run",
-                subtitle: "The most recent benchmark stored by the API.",
+            div { class: "flex flex-col gap-(--space-3) border-b border-(color:--clr-border) px-(--space-4) py-(--space-3) sm:flex-row sm:items-center sm:justify-between",
+                div { class: "min-w-0",
+                    h2 { class: "text-(length:--fs-base) font-(weight:--fw-semibold) text-(color:--clr-text)",
+                        "Latest run"
+                    }
+                    p { class: "text-(length:--fs-xs) text-(color:--clr-text-muted)",
+                        "The most recent benchmark stored by the API."
+                    }
+                }
+                div { class: "flex flex-wrap gap-(--space-2)",
+                    Link {
+                        to: Route::RunDetail {
+                            run_id: run.run_id.clone(),
+                        },
+                        class: "{secondary}",
+                        "View details"
+                    }
+                    if let Some(previous) = previous_run_id {
+                        Link {
+                            to: Route::Comparisons {
+                                baseline: previous,
+                                comparison: run.run_id.clone(),
+                            },
+                            class: "{secondary}",
+                            Icon { kind: IconKind::Compare }
+                            "Compare with previous run"
+                        }
+                    }
+                }
             }
-            dl { class: "grid grid-cols-1 gap-(--space-4) p-(--space-5) sm:grid-cols-2 lg:grid-cols-4",
+            dl { class: "grid grid-cols-2 gap-(--space-4) px-(--space-4) py-(--space-3) lg:grid-cols-4",
                 Definition { label: "Run",
                     Link {
                         to: Route::RunDetail {
@@ -40,25 +66,8 @@ pub fn LatestRun(run: RunSummary, previous_run_id: Option<String>) -> Element {
                 }
                 Definition { label: "Recorded", "{created}" }
                 Definition { label: "Target",
-                    span { class: "font-(family-name:--font-code) text-(length:--fs-sm)", "{run.target.path}" }
-                }
-            }
-            div { class: "flex flex-wrap gap-(--space-2) border-t border-(color:--clr-border) px-(--space-5) py-(--space-4)",
-                Link {
-                    to: Route::RunDetail {
-                        run_id: run.run_id.clone(),
-                    },
-                    class: "{secondary}",
-                    "View details"
-                }
-                if let Some(previous) = previous_run_id {
-                    Link {
-                        to: Route::Comparisons {
-                            baseline: previous,
-                            comparison: run.run_id.clone(),
-                        },
-                        class: "{secondary}",
-                        "Compare with previous run"
+                    span { class: "font-(family-name:--font-code) text-(length:--fs-xs) break-all",
+                        "{run.target.path}"
                     }
                 }
             }

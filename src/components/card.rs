@@ -18,12 +18,12 @@ pub fn CardHeader(
     #[props(into, default)] subtitle: String,
 ) -> Element {
     rsx! {
-        div { class: "flex flex-col gap-(--space-1) border-b border-(color:--clr-border) px-(--space-5) py-(--space-4)",
-            h2 { class: "text-(length:--fs-lg) font-(weight:--fw-semibold) text-(color:--clr-text)",
+        div { class: "flex flex-col gap-(--space-1) border-b border-(color:--clr-border) px-(--space-4) py-(--space-3)",
+            h2 { class: "text-(length:--fs-base) font-(weight:--fw-semibold) text-(color:--clr-text)",
                 "{title}"
             }
             if !subtitle.is_empty() {
-                p { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)", "{subtitle}" }
+                p { class: "text-(length:--fs-xs) text-(color:--clr-text-muted)", "{subtitle}" }
             }
         }
     }
