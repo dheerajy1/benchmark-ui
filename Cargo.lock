@@ -272,7 +272,9 @@ version = "0.1.0"
 dependencies = [
  "dioxus",
  "envy",
+ "gloo-net",
  "serde",
+ "serde_json",
  "validator",
 ]
 

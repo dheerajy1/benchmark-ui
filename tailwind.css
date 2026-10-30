@@ -1,1 +1,139 @@
 @import "tailwindcss";
+
+/* Every design token lives in :root, components only reference them */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --clr-canvas: #090b10;
+  --clr-surface: #10131a;
+  --clr-surface-raised: #161a23;
+  --clr-surface-hover: #1c212c;
+  --clr-overlay: rgb(5 7 10 / 0.7);
+
+  /* Borders */
+  --clr-border: #222835;
+  --clr-border-strong: #333b4d;
+
+  /* Text */
+  --clr-text: #e7eaf0;
+  --clr-text-muted: #9aa3b5;
+  --clr-text-faint: #667087;
+
+  /* Brand and status */
+  --clr-accent: #7c9cff;
+  --clr-accent-soft: rgb(124 156 255 / 0.14);
+  --clr-accent-contrast: #090b10;
+  --clr-success: #3ecf8e;
+  --clr-success-soft: rgb(62 207 142 / 0.14);
+  --clr-warning: #f5b84b;
+  --clr-warning-soft: rgb(245 184 75 / 0.14);
+  --clr-danger: #ff6b6b;
+  --clr-danger-soft: rgb(255 107 107 / 0.14);
+  --clr-info: #4cc9f0;
+  --clr-info-soft: rgb(76 201 240 / 0.14);
+  --clr-focus: #a9bcff;
+
+  /* Chart series */
+  --clr-chart-1: #7c9cff;
+  --clr-chart-1-soft: rgb(124 156 255 / 0.16);
+  --clr-chart-2: #3ecf8e;
+  --clr-chart-2-soft: rgb(62 207 142 / 0.16);
+  --clr-chart-3: #f5b84b;
+  --clr-chart-3-soft: rgb(245 184 75 / 0.16);
+  --clr-chart-4: #4cc9f0;
+  --clr-chart-4-soft: rgb(76 201 240 / 0.16);
+  --clr-chart-5: #c792ff;
+  --clr-chart-5-soft: rgb(199 146 255 / 0.16);
+
+  /* Typography */
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-base: 0.875rem;
+  --fs-lg: 1rem;
+  --fs-xl: 1.25rem;
+  --fs-2xl: 1.5rem;
+  --fs-3xl: 1.875rem;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  /* Spacing scale */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* Shape and elevation */
+  --round-sm: 0.375rem;
+  --round-md: 0.5rem;
+  --round-lg: 0.75rem;
+  --round-full: 9999px;
+  --shadow-card: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 8px 24px rgb(0 0 0 / 0.25);
+  --shadow-popover: 0 12px 32px rgb(0 0 0 / 0.45);
+
+  /* Layout */
+  --sidebar-width: 15rem;
+  --topbar-height: 3.5rem;
+  --content-max: 80rem;
+  --control-height: 2.25rem;
+  --icon-sm: 1rem;
+  --icon-md: 1.25rem;
+  --icon-lg: 1.5rem;
+  --dot-size: 0.5rem;
+  --bar-size: 0.375rem;
+  --table-min-width: 56rem;
+  --cell-max: 14rem;
+  --form-max: 52rem;
+  --chart-height: 14rem;
+}
+
+@layer base {
+  html {
+    background-color: var(--clr-canvas);
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--clr-canvas);
+    color: var(--clr-text);
+    font-family: var(--font-ui);
+    font-size: var(--fs-base);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--clr-focus);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--clr-accent-soft);
+  }
+
+  /* Dark scrollbars for wide tables */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--clr-border-strong) transparent;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
