@@ -1,4 +1,4 @@
-use super::models::BenchmarkRequest;
+use super::models::{BenchmarkRequest, TargetRunRequest};
 use crate::features::{
     connection::{post_json, ApiError},
     live::LiveRunAccepted,
@@ -6,5 +6,10 @@ use crate::features::{
 
 // POST /api/v1/live-runs, answers at once with the run id while the benchmark runs on
 pub async fn submit_live(request: &BenchmarkRequest) -> Result<LiveRunAccepted, ApiError> {
+    post_json("/live-runs", request).await
+}
+
+// POST /api/v1/live-runs for a saved target, the same endpoint and answer as a custom run
+pub async fn submit_target_live(request: &TargetRunRequest) -> Result<LiveRunAccepted, ApiError> {
     post_json("/live-runs", request).await
 }

@@ -2,8 +2,12 @@ use dioxus::prelude::*;
 
 use crate::{
     features::{
-        comparisons::Comparisons, history::History, live::LiveRun, overview::Overview,
-        run_detail::RunDetail, submission::Submission,
+        comparisons::Comparisons,
+        history::History,
+        live::LiveRun,
+        overview::Overview,
+        run_detail::RunDetail,
+        submission::{Submission, SubmissionFrom},
     },
     shell::{AppShell, NotFound},
 };
@@ -25,6 +29,8 @@ pub enum Route {
         Comparisons { baseline: String, comparison: String },
         #[route("/new")]
         Submission {},
+        #[route("/new/from/:run_id")]
+        SubmissionFrom { run_id: String },
         #[route("/:..segments")]
         NotFound { segments: Vec<String> },
 }

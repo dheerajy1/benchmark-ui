@@ -165,9 +165,14 @@ fn RunBar(
             status,
             tone,
             format_duration_ms(snapshot.run_elapsed_ms(clock()) as f64),
-            snapshot
-                .plan()
-                .map(|plan| (path_tail(&plan.path), plan.path.clone())),
+            snapshot.plan().map(|plan| {
+                let label = plan
+                    .target_name
+                    .clone()
+                    .unwrap_or_else(|| path_tail(&plan.path));
+
+                (label, plan.path.clone())
+            }),
             short_id(snapshot.run_id()),
             snapshot.run_id().to_string(),
         )

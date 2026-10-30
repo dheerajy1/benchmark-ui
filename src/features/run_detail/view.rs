@@ -11,7 +11,7 @@ use crate::{
         button_class, Badge, ButtonVariant, EmptyState, Icon, IconKind, LoadingPanel, PageHeader,
         StatTile, Tone,
     },
-    features::connection::ApiErrorPanel,
+    features::{configurations::ConfigurationCard, connection::ApiErrorPanel},
     format::{
         format_bytes, format_duration_ms, format_latency_ms, format_per_second, format_percent,
         short_id, MISSING,
@@ -100,6 +100,7 @@ pub fn RunDetail(run_id: String) -> Element {
                         span { class: "min-w-0 break-all font-(family-name:--font-code)", "{result.target.path}" }
                     }
                     Headline { result: result.clone() }
+                    ConfigurationCard { run_id: run_id.clone() }
                     HttpSection { latency: metrics.http_latency.clone() }
                     ResourceSection { memory: metrics.memory.clone(), cpu: metrics.cpu.clone() }
                     StepsSection {

@@ -161,6 +161,8 @@ pub struct Plan {
     pub path: String,
     // None when no workload was requested
     pub workload: Option<String>,
+    // The saved target's name, None for a custom run
+    pub target_name: Option<String>,
 }
 
 // One line of the event panel
@@ -562,7 +564,13 @@ fn parse_plan(data: &Value) -> Option<Plan> {
             format!("{amount} · {concurrency} concurrent")
         });
 
-    Some(Plan { path, workload })
+    let target_name = data.get("target").and_then(|target| text(target, "name"));
+
+    Some(Plan {
+        path,
+        workload,
+        target_name,
+    })
 }
 
 fn parse_sample(data: &Value) -> Option<SamplePoint> {

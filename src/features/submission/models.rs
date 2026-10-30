@@ -54,3 +54,22 @@ pub struct BenchmarkRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workload: Option<WorkloadRequest>,
 }
+
+// Request body of POST /api/v1/live-runs for a saved target. The target supplies the path,
+// the start command, the readiness and the headers. Only the workload can be changed.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TargetRunRequest {
+    pub target_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workload: Option<TargetWorkloadOverride>,
+}
+
+// Exactly one of `requests` and `duration_seconds` is set
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TargetWorkloadOverride {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requests: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<u64>,
+    pub concurrency: u64,
+}

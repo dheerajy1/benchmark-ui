@@ -225,6 +225,122 @@ pub fn path_tail(path: &str) -> String {
         .to_string()
 }
 
+// Milliseconds since the Unix epoch of an ISO 8601 time such as "2026-10-08T05:11:22.123Z".
+// A UTC offset such as +02:00 is honoured, and a time without an offset counts as UTC.
+pub fn parse_epoch_ms(value: &str) -> Option<i64> {
+    let bytes = value.as_bytes();
+
+    if bytes.len() < 19
+        || bytes.get(4) != Some(&b'-')
+        || bytes.get(7) != Some(&b'-')
+        || !bytes
+            .get(10)
+            .is_some_and(|byte| *byte == b'T' || *byte == b' ')
+        || bytes.get(13) != Some(&b':')
+        || bytes.get(16) != Some(&b':')
+    {
+        return None;
+    }
+
+    let year: i64 = value.get(0..4)?.parse().ok()?;
+    let month: i64 = value.get(5..7)?.parse().ok()?;
+    let day: i64 = value.get(8..10)?.parse().ok()?;
+    let hour: i64 = value.get(11..13)?.parse().ok()?;
+    let minute: i64 = value.get(14..16)?.parse().ok()?;
+    let second: i64 = value.get(17..19)?.parse().ok()?;
+
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        return None;
+    }
+
+    let mut rest = value.get(19..)?;
+
+    // Fraction of a second, only the first three digits count
+    let mut millis: i64 = 0;
+    if let Some(fraction) = rest.strip_prefix('.') {
+        let digits: String = fraction
+            .chars()
+            .take_while(|character| character.is_ascii_digit())
+            .collect();
+
+        if digits.is_empty() {
+            return None;
+        }
+
+        let kept = &digits[..digits.len().min(3)];
+        millis = format!("{kept:0<3}").parse().ok()?;
+        rest = &fraction[digits.len()..];
+    }
+
+    let offset_minutes: i64 = match rest {
+        "" | "Z" | "z" => 0,
+        other => {
+            let sign: i64 = match *other.as_bytes().first()? {
+                b'+' => 1,
+                b'-' => -1,
+                _ => return None,
+            };
+
+            let (hours, minutes) = other.get(1..)?.split_once(':')?;
+            let hours: i64 = hours.parse().ok()?;
+            let minutes: i64 = minutes.parse().ok()?;
+
+            sign * (hours * 60 + minutes)
+        }
+    };
+
+    let seconds = days_from_civil(year, month, day) * 86_400 + hour * 3_600 + minute * 60 + second
+        - offset_minutes * 60;
+
+    Some(seconds * 1_000 + millis)
+}
+
+// Days since 1970-01-01 of a civil date in the proleptic Gregorian calendar
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = (if y >= 0 { y } else { y - 399 }) / 400;
+    let year_of_era = y - era * 400;
+    let month_index = (month + 9) % 12;
+    let day_of_year = (153 * month_index + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+
+    era * 146_097 + day_of_era - 719_468
+}
+
+// "just now", "5 min ago", "2 h ago" or "3 days ago", relative to `now_ms`. Older than 30 days
+// it shows the date, and a time that cannot be read is shown unchanged.
+pub fn relative_time(created_at: &str, now_ms: i64) -> String {
+    let Some(created_ms) = parse_epoch_ms(created_at) else {
+        return created_at.to_string();
+    };
+
+    let seconds = (now_ms - created_ms).max(0) / 1_000;
+    let minutes = seconds / 60;
+    let hours = minutes / 60;
+    let days = hours / 24;
+
+    if seconds < 60 {
+        "just now".to_string()
+    } else if minutes < 60 {
+        format!("{minutes} min ago")
+    } else if hours < 24 {
+        format!("{hours} h ago")
+    } else if days < 30 {
+        if days == 1 {
+            "1 day ago".to_string()
+        } else {
+            format!("{days} days ago")
+        }
+    } else {
+        date_part(created_at)
+    }
+}
+
 // Human label for a backend status code such as no_build_command
 pub fn humanize_code(code: &str) -> String {
     let mut text = code.replace('_', " ");
@@ -302,6 +418,30 @@ mod tests {
         assert_eq!(path_tail("/home/me/projects/my-api"), "my-api");
         assert_eq!(path_tail("/home/me/projects/my-api/"), "my-api");
         assert_eq!(short_id("0192f3a0-0000-7000-8000-000000000000"), "0192f3a0");
+    }
+
+    #[test]
+    fn parses_iso_times_to_epoch_milliseconds() {
+        assert_eq!(parse_epoch_ms("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(parse_epoch_ms("1970-01-01T00:00:01.5Z"), Some(1_500));
+        assert_eq!(
+            parse_epoch_ms("2026-10-08T07:11:22+02:00"),
+            parse_epoch_ms("2026-10-08T05:11:22Z")
+        );
+        assert_eq!(parse_epoch_ms("not a date"), None);
+    }
+
+    #[test]
+    fn describes_how_long_ago_a_run_was() {
+        let now = parse_epoch_ms("2026-10-08T07:11:22Z").expect("valid time");
+
+        assert_eq!(relative_time("2026-10-08T07:11:00Z", now), "just now");
+        assert_eq!(relative_time("2026-10-08T07:06:22Z", now), "5 min ago");
+        assert_eq!(relative_time("2026-10-08T05:11:22Z", now), "2 h ago");
+        assert_eq!(relative_time("2026-10-07T07:11:22Z", now), "1 day ago");
+        assert_eq!(relative_time("2026-10-05T07:11:22Z", now), "3 days ago");
+        assert_eq!(relative_time("2026-09-01T07:11:22Z", now), "2026-09-01");
+        assert_eq!(relative_time("garbage", now), "garbage");
     }
 
     #[test]

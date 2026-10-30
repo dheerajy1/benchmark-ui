@@ -1,7 +1,8 @@
 use dioxus::prelude::*;
 
 use super::{
-    api::fetch_comparison, models::ComparisonData, picker::RunPicker, results::ComparisonResults,
+    api::fetch_comparison, config_notice::ConfigurationNotice, models::ComparisonData,
+    picker::RunPicker, results::ComparisonResults,
 };
 use crate::{
     app::Route,
@@ -134,9 +135,15 @@ pub fn Comparisons(baseline: String, comparison: String) -> Element {
                     span { class: "text-(length:--fs-sm) text-(color:--clr-text-faint)", "Select both above, or pick runs from the history." }
                 }
             },
-            Some(Ok(Some(data))) => rsx! {
-                ComparisonResults { data }
-            },
+            Some(Ok(Some(data))) => {
+                let baseline_id = data.baseline.run_id.clone();
+                let comparison_id = data.comparison.run_id.clone();
+
+                rsx! {
+                    ConfigurationNotice { baseline: baseline_id, comparison: comparison_id }
+                    ComparisonResults { data }
+                }
+            }
         }
     };
 

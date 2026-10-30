@@ -275,6 +275,7 @@ dependencies = [
  "futures-util",
  "gloo-net",
  "gloo-timers",
+ "js-sys",
  "serde",
  "serde_json",
  "validator",

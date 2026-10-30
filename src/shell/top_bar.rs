@@ -25,6 +25,7 @@ fn current_title(route: &Route) -> String {
         Route::LiveRun { run_id } => format!("Live run {}", short_id(run_id)),
         Route::Comparisons { .. } => "Compare".to_string(),
         Route::Submission {} => "New benchmark".to_string(),
+        Route::SubmissionFrom { .. } => "New benchmark".to_string(),
         Route::NotFound { .. } => "Not found".to_string(),
     }
 }
