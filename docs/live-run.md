@@ -48,6 +48,42 @@ in the final result because the API only knows them when the workload has finish
 Leaving the page closes the socket. The run is not affected by any of this: it keeps running and
 is stored whether or not anybody watches.
 
+## Cancelling a run
+
+A running run shows a **Cancel run** button in the run bar. One click asks "Cancel this run?" with **Yes, cancel** and
+**Keep running**, in place, with no dialog.
+
+- It is only there while the run is running and this tab holds the right to cancel it. That right is a token the API
+  gives once when the run starts. The form keeps it in this tab's `sessionStorage` under the run id, so a refresh keeps
+  the button, and closing the tab discards it. If the storage is blocked the token is kept in memory for this page load only.
+  The token is never put in a URL, shown, logged, or sent anywhere but the cancel request.
+- A run started from another tab or browser shows "Only the tab that started this run can cancel it." instead of a button.
+- After the request is taken the page shows "Cancelling, stopping the target…" and the running step says "Stopping". The run
+  is **not** reported as cancelled until the API says so: that event comes once the build or the target and all its
+  processes are really gone. Other viewers of the same run see the same.
+- A cancelled run shows a "Benchmark cancelled" card with the step it stopped in, and "nothing was stored". The step is marked
+  cancelled in the pipeline.
+- If the API refuses, the page says why: the run already finished or is already saving its result (cancelling is no longer
+  possible), the run is gone, or this browser has no right to cancel it (the token is dropped). A request that did not get
+  through can be tried again.
+- Closing the page never cancels a run. Only the button does.
+- The token is removed from the tab as soon as the run ends.
+
+### What was verified in a real browser
+
+Observed on 2026-10-17 by hand, in one browser, dashboard through a VS Code dev tunnel, API behind a Cloudflare quick tunnel,
+target kafka-api-gateway:
+
+- Cancel during the build: the page showed Cancelled, "Stopped during the build step", nothing stored. No process of the project
+  and no listener on the target's port were left.
+- Cancel during the workload: events "Cancellation requested, stopping Workload" then "Run cancelled, nothing was stored". No
+  process and no listener were left.
+- A second tab on the same run showed "Only the tab that started this run can cancel it." and followed the run to Cancelled when
+  the first tab cancelled it.
+
+Not verified in a browser: cancel during startup (the startup attempts ended on their own first), refresh then cancel (the run
+failed at startup before it could be cancelled), the double click on "Yes, cancel", other browsers and phones.
+
 ## Request headers
 
 The form has two optional boxes, one header per line as `Name: value`:
@@ -69,8 +105,22 @@ The API checks the `Origin` of the handshake against its allow-list. `*.usw3.dev
 `*.trycloudflare.com` origins pass. A dashboard on another origin gets a `403`, the page then falls
 back to polling.
 
-## Not verified
+## What was verified in a real browser, and what was not
 
-Whether a WebSocket works through VS Code dev tunnels and Cloudflare Tunnel has to be tested with a
-real browser and a real run through the actual tunnel. Until then the polling fallback is the safety
-net, not a promise.
+Verified on 2026-10-13, in one browser, with the dashboard served through a VS Code dev tunnel and
+the API behind a Cloudflare quick tunnel:
+
+- A run opens its live page at once, the WebSocket connects (`101 Switching Protocols`) and the events
+  arrive over it, not through the polling fallback.
+- The pipeline, the tiles and the three charts update live during the workload, the run is stored
+  and the **View run** button appears when it ends.
+- Refreshing the page in the middle of a run restores the whole state at the right step.
+- Going offline for about five seconds and back online reconnects by itself and fills the charts in.
+- Headers typed in the form reach the target: the same benchmark that failed every request without
+  headers finished with none failed.
+
+Not verified:
+
+- A long silent stretch (a build of many minutes) against the tunnel's idle timeouts.
+- A named Cloudflare tunnel, other browsers, phones, more than one viewer of a run.
+- The polling fallback and the 4404 and 4429 close codes in a real browser (unit tests only).

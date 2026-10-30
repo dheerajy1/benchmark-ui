@@ -3,10 +3,22 @@ use serde_json::Value;
 
 // Wire types of the live-run API, see docs/live-runs-api.md in benchmark-api
 
-// `data` of the 202 of POST /api/v1/live-runs
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+// `data` of the 202 of POST /api/v1/live-runs. The cancel token is the right to cancel the run,
+// it is shown once, so a debug print redacts it.
+#[derive(Clone, PartialEq, Deserialize)]
 pub struct LiveRunAccepted {
     pub run_id: String,
+    pub cancel_token: String,
+}
+
+impl std::fmt::Debug for LiveRunAccepted {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LiveRunAccepted")
+            .field("run_id", &self.run_id)
+            .field("cancel_token", &"<redacted>")
+            .finish()
+    }
 }
 
 // One ordered event of a run, `data` depends on `kind`
@@ -140,5 +152,21 @@ mod tests {
 
         assert_eq!(replay.dropped_through_seq, 0);
         assert_eq!(replay.events.len(), 1);
+    }
+
+    #[test]
+    fn the_accepted_answer_carries_the_run_id_and_the_token_and_never_prints_the_token() {
+        let accepted: LiveRunAccepted = serde_json::from_str(
+            r#"{"run_id":"r1","ws_path":"/x","status_path":"/y","cancel_token":"3f9a0c1b7d2e48a6b5c4d3e2f1a09b8c","capabilities":{"cancel":true}}"#,
+        )
+        .unwrap();
+
+        assert_eq!(accepted.run_id, "r1");
+        assert_eq!(accepted.cancel_token, "3f9a0c1b7d2e48a6b5c4d3e2f1a09b8c");
+
+        let printed = format!("{accepted:?}");
+
+        assert!(printed.contains("r1"));
+        assert!(!printed.contains("3f9a0c1b"), "{printed}");
     }
 }

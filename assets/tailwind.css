@@ -407,6 +407,9 @@
   .max-w-md {
     max-width: var(--container-md);
   }
+  .max-w-prose {
+    max-width: 65ch;
+  }
   .min-w-\(--table-min-width\) {
     min-width: var(--table-min-width);
   }
@@ -476,6 +479,9 @@
   }
   .items-center {
     align-items: center;
+  }
+  .items-end {
+    align-items: flex-end;
   }
   .items-start {
     align-items: flex-start;
@@ -979,6 +985,13 @@
     &:hover {
       @media (hover: hover) {
         text-decoration-line: underline;
+      }
+    }
+  }
+  .hover\:opacity-80 {
+    &:hover {
+      @media (hover: hover) {
+        opacity: 80%;
       }
     }
   }

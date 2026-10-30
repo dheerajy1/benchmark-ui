@@ -2,9 +2,11 @@ use dioxus::prelude::*;
 use gloo_timers::future::TimeoutFuture;
 
 use super::{
+    cancel_control::CancelControl,
     driver::{follow, FeedState},
     pipeline::Pipeline,
-    state::{LiveState, Progress, SamplePoint, Terminal},
+    state::{LiveState, Progress, SamplePoint, Stage, Terminal},
+    token::{forget_token, load_token, SessionTokenStore},
 };
 use crate::{
     app::Route,
@@ -44,6 +46,19 @@ fn LivePage(run_id: String) -> Element {
     let feed = use_signal(|| FeedState::Connecting);
     let mut clock = use_signal(|| 0u64);
     let restart = use_signal(|| 0u32);
+
+    // The right to cancel this run, kept by the tab that started it
+    let token_run_id = run_id.clone();
+    let token = use_signal(move || load_token(&SessionTokenStore, &token_run_id));
+
+    // Once the run has ended its token is of no use, so it is removed
+    let forget_run_id = run_id.clone();
+
+    use_effect(move || {
+        if state.read().is_terminal() {
+            forget_token(&SessionTokenStore, &forget_run_id);
+        }
+    });
 
     // Local time in milliseconds, it only fills the time between two events
     use_future(move || async move {
@@ -89,7 +104,7 @@ fn LivePage(run_id: String) -> Element {
     } else {
         rsx! {
             div { class: "flex flex-col gap-(--space-4)",
-                RunBar { state, feed, clock }
+                RunBar { state, feed, clock, token }
                 FeedBanner { feed, restart }
                 Outcome { state }
                 if !state.read().is_recovered() {
@@ -118,6 +133,8 @@ fn run_status(state: &LiveState, feed: &FeedState) -> (&'static str, Tone) {
     match state.terminal() {
         Some(Terminal::Completed(_)) => ("Completed", Tone::Success),
         Some(Terminal::Failed { .. }) => ("Failed", Tone::Danger),
+        Some(Terminal::Cancelled { .. }) => ("Cancelled", Tone::Neutral),
+        None if state.is_cancelling() => ("Cancelling", Tone::Neutral),
         None => match feed {
             FeedState::Live | FeedState::Polling => ("Running", Tone::Accent),
             FeedState::Connecting => ("Connecting", Tone::Neutral),
@@ -132,16 +149,29 @@ fn run_status(state: &LiveState, feed: &FeedState) -> (&'static str, Tone) {
 
 // Status, target and elapsed time of the run
 #[component]
-fn RunBar(state: Signal<LiveState>, feed: Signal<FeedState>, clock: Signal<u64>) -> Element {
-    let state = state.read();
-    let feed = feed();
+fn RunBar(
+    state: Signal<LiveState>,
+    feed: Signal<FeedState>,
+    clock: Signal<u64>,
+    token: Signal<Option<String>>,
+) -> Element {
+    let (status, tone, elapsed, target, short, run_id) = {
+        let snapshot = state.read();
+        let feed = feed();
 
-    let (status, tone) = run_status(&state, &feed);
-    let elapsed = format_duration_ms(state.run_elapsed_ms(clock()) as f64);
-    let target = state
-        .plan()
-        .map(|plan| (path_tail(&plan.path), plan.path.clone()));
-    let short = short_id(state.run_id());
+        let (status, tone) = run_status(&snapshot, &feed);
+
+        (
+            status,
+            tone,
+            format_duration_ms(snapshot.run_elapsed_ms(clock()) as f64),
+            snapshot
+                .plan()
+                .map(|plan| (path_tail(&plan.path), plan.path.clone())),
+            short_id(snapshot.run_id()),
+            snapshot.run_id().to_string(),
+        )
+    };
 
     rsx! {
         Card {
@@ -160,6 +190,7 @@ fn RunBar(state: Signal<LiveState>, feed: Signal<FeedState>, clock: Signal<u64>)
                 span { class: "ml-auto text-(length:--fs-sm) tabular-nums text-(color:--clr-text-muted)",
                     "Elapsed {elapsed}"
                 }
+                CancelControl { state, run_id, token }
             }
         }
     }
@@ -277,6 +308,30 @@ fn Outcome(state: Signal<LiveState>) -> Element {
 
     match terminal {
         None => rsx! {},
+        Some(Terminal::Cancelled { stage }) => {
+            let detail = stage
+                .as_deref()
+                .and_then(Stage::from_key)
+                .map(|stage| format!("Stopped during the {} step.", stage.label().to_lowercase()));
+
+            rsx! {
+                Card {
+                    CardHeader {
+                        title: "Benchmark cancelled",
+                        subtitle: "The run was stopped on request and its target was stopped too. Nothing was stored.",
+                    }
+                    div { class: "flex flex-col gap-(--space-3) p-(--space-4)",
+                        if let Some(detail) = detail {
+                            p { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)", "{detail}" }
+                        }
+                        div { class: "flex flex-wrap items-center gap-(--space-2)",
+                            Link { to: Route::Submission {}, class: "{primary}", "Run another benchmark" }
+                            Link { to: Route::History {}, class: "{secondary}", "All runs" }
+                        }
+                    }
+                }
+            }
+        }
         Some(Terminal::Completed(result)) => {
             let short = short_id(&run_id);
             let subtitle = if recovered {

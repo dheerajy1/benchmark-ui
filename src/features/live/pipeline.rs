@@ -13,6 +13,8 @@ enum Phase {
     Running,
     Done,
     Failed,
+    // Stopped on request
+    Cancelled,
     // Finished without a result of its own, for example no build command
     Neutral,
     Skipped,
@@ -26,6 +28,7 @@ impl Phase {
             Self::Running => "animate-spin border-2 border-(color:--clr-accent) border-t-transparent",
             Self::Done => "bg-(--clr-success-soft) text-(color:--clr-success)",
             Self::Failed => "bg-(--clr-danger-soft) text-(color:--clr-danger)",
+            Self::Cancelled => "border border-(color:--clr-border-strong) text-(color:--clr-text-muted)",
             Self::Neutral | Self::Skipped | Self::NotRequested => {
                 "border border-dashed border-(color:--clr-border-strong) text-(color:--clr-text-faint)"
             }
@@ -36,6 +39,7 @@ impl Phase {
         match self {
             Self::Done => "✓",
             Self::Failed => "!",
+            Self::Cancelled => "✕",
             Self::Neutral | Self::Skipped | Self::NotRequested => "–",
             Self::Pending | Self::Running => "",
         }
@@ -48,6 +52,7 @@ impl Phase {
             Self::Running => "Running",
             Self::Done => "Done",
             Self::Failed => "Failed",
+            Self::Cancelled => "Cancelled",
             Self::Neutral => "Finished",
             Self::Skipped => "Skipped",
             Self::NotRequested => "Not requested",
@@ -58,6 +63,7 @@ impl Phase {
         match self {
             Self::Pending | Self::NotRequested | Self::Skipped => "text-(color:--clr-text-faint)",
             Self::Failed => "text-(color:--clr-danger)",
+            Self::Cancelled => "text-(color:--clr-text-muted)",
             _ => "text-(color:--clr-text)",
         }
     }
@@ -128,6 +134,13 @@ fn row_for(state: &LiveState, stage: Stage, clock_ms: u64) -> Row {
                 None
             };
 
+            // Asked to stop and still working on it
+            let detail = if state.is_cancelling() {
+                join(Some("Stopping".to_string()), detail)
+            } else {
+                detail
+            };
+
             (Phase::Running, detail, time, bar)
         }
         StageState::Done {
@@ -157,7 +170,13 @@ fn row_for(state: &LiveState, stage: Stage, clock_ms: u64) -> Row {
         StageState::Skipped { reason } => (Phase::Skipped, Some(humanize_code(reason)), None, None),
     };
 
-    let phase = if failed_here { Phase::Failed } else { phase };
+    let phase = if failed_here {
+        Phase::Failed
+    } else if state.cancelled_stage() == Some(stage) {
+        Phase::Cancelled
+    } else {
+        phase
+    };
 
     Row {
         label: stage.label(),
@@ -438,5 +457,65 @@ mod tests {
         );
 
         assert_eq!(row_for(&state, Stage::Build, 0).phase, Phase::Failed);
+    }
+
+    #[test]
+    fn a_running_step_says_it_is_stopping_once_cancellation_was_requested() {
+        let mut state = LiveState::new("r".to_string());
+
+        accepted(&mut state, Value::Null);
+        feed(
+            &mut state,
+            2,
+            100,
+            "stage.started",
+            json!({"stage": "build"}),
+        );
+
+        assert_eq!(row_for(&state, Stage::Build, 0).detail, None);
+
+        feed(
+            &mut state,
+            3,
+            200,
+            "run.cancelling",
+            json!({"stage": "build"}),
+        );
+
+        let row = row_for(&state, Stage::Build, 0);
+
+        assert_eq!(row.phase, Phase::Running);
+        assert_eq!(row.detail.as_deref(), Some("Stopping"));
+    }
+
+    #[test]
+    fn the_step_a_run_was_cancelled_in_is_marked_cancelled() {
+        let mut state = LiveState::new("r".to_string());
+
+        accepted(&mut state, Value::Null);
+        feed(
+            &mut state,
+            2,
+            100,
+            "stage.started",
+            json!({"stage": "startup"}),
+        );
+        feed(
+            &mut state,
+            3,
+            200,
+            "run.cancelling",
+            json!({"stage": "startup"}),
+        );
+        feed(
+            &mut state,
+            4,
+            300,
+            "run.cancelled",
+            json!({"stage": "startup", "persisted": false}),
+        );
+
+        assert_eq!(row_for(&state, Stage::Startup, 0).phase, Phase::Cancelled);
+        assert_eq!(row_for(&state, Stage::Build, 0).phase, Phase::Pending);
     }
 }

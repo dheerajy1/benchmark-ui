@@ -12,7 +12,7 @@ use crate::{
     },
     features::{
         connection::{ApiError, ApiErrorPanel},
-        live::active_run_id,
+        live::{active_run_id, save_token, SessionTokenStore},
     },
 };
 
@@ -55,6 +55,10 @@ pub fn Submission() -> Element {
         spawn(async move {
             match submit_live(&request).await {
                 Ok(accepted) => {
+                    // Kept for this tab, so the live page can offer to cancel the run
+                    let _ =
+                        save_token(&SessionTokenStore, &accepted.run_id, &accepted.cancel_token);
+
                     let _ = nav.push(Route::LiveRun {
                         run_id: accepted.run_id,
                     });

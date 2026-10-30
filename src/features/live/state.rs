@@ -62,7 +62,7 @@ impl Stage {
         }
     }
 
-    fn from_key(key: &str) -> Option<Stage> {
+    pub(super) fn from_key(key: &str) -> Option<Stage> {
         Stage::ALL.into_iter().find(|stage| stage.key() == key)
     }
 }
@@ -150,6 +150,10 @@ pub enum Terminal {
         message: String,
         stage: Option<String>,
     },
+    // Stopped on request, the work and its cleanup are over and nothing was stored
+    Cancelled {
+        stage: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -195,6 +199,9 @@ pub struct LiveState {
     log: Vec<LogLine>,
     terminal: Option<Terminal>,
     recovered: bool,
+    // The run said it can be cancelled, and whether cancellation was requested
+    can_cancel: bool,
+    cancelling: bool,
     discovery_detail: Option<String>,
     artifact_detail: Option<String>,
     baseline_detail: Option<String>,
@@ -215,6 +222,8 @@ impl LiveState {
             log: Vec::new(),
             terminal: None,
             recovered: false,
+            can_cancel: false,
+            cancelling: false,
             discovery_detail: None,
             artifact_detail: None,
             baseline_detail: None,
@@ -268,6 +277,26 @@ impl LiveState {
     pub fn failed_stage(&self) -> Option<Stage> {
         match &self.terminal {
             Some(Terminal::Failed {
+                stage: Some(key), ..
+            }) => Stage::from_key(key),
+            _ => None,
+        }
+    }
+
+    // Whether the run offers cancellation, known from its first event
+    pub fn can_cancel(&self) -> bool {
+        self.can_cancel
+    }
+
+    // Cancellation was requested and the run has not ended yet
+    pub fn is_cancelling(&self) -> bool {
+        self.cancelling && !self.is_terminal()
+    }
+
+    // The stage a cancelled run stopped in
+    pub fn cancelled_stage(&self) -> Option<Stage> {
+        match &self.terminal {
+            Some(Terminal::Cancelled {
                 stage: Some(key), ..
             }) => Stage::from_key(key),
             _ => None,
@@ -364,7 +393,19 @@ impl LiveState {
         let data = &event.data;
 
         match event.kind.as_str() {
-            "run.accepted" => self.plan = parse_plan(data),
+            "run.accepted" => {
+                self.plan = parse_plan(data);
+                self.can_cancel = data
+                    .pointer("/capabilities/cancel")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+            }
+            "run.cancelling" => self.cancelling = true,
+            "run.cancelled" => {
+                self.terminal = Some(Terminal::Cancelled {
+                    stage: text(data, "stage"),
+                });
+            }
             "stage.started" => {
                 if let Some(stage) = stage_of(data) {
                     self.stages[stage as usize] = StageState::Running {
@@ -589,6 +630,17 @@ fn describe(kind: &str, data: &Value) -> Option<(String, Tone)> {
             Tone::Neutral,
         )),
         "baseline.measured" => Some(("Baseline measured".to_string(), Tone::Neutral)),
+        "run.cancelling" => Some((
+            match text(data, "stage").as_deref().and_then(Stage::from_key) {
+                Some(stage) => format!("Cancellation requested, stopping {}", stage.label()),
+                None => "Cancellation requested".to_string(),
+            },
+            Tone::Neutral,
+        )),
+        "run.cancelled" => Some((
+            "Run cancelled, nothing was stored".to_string(),
+            Tone::Neutral,
+        )),
         "run.completed" => Some(("Run completed and stored".to_string(), Tone::Success)),
         "run.failed" => Some((
             format!(
@@ -1294,5 +1346,149 @@ mod tests {
 
         assert!(state.is_terminal());
         assert!(state.is_recovered());
+    }
+
+    #[test]
+    fn a_run_says_in_its_first_event_whether_it_can_be_cancelled() {
+        let mut yes = state();
+
+        yes.apply_event(
+            event(
+                1,
+                0,
+                "run.accepted",
+                json!({"target": {"path": "/p"}, "capabilities": {"cancel": true}}),
+            ),
+            0,
+        );
+
+        let mut no = self::state();
+
+        no.apply_event(
+            event(
+                1,
+                0,
+                "run.accepted",
+                json!({"target": {"path": "/p"}, "capabilities": {"cancel": false}}),
+            ),
+            0,
+        );
+
+        let mut unknown = self::state();
+
+        unknown.apply_event(
+            event(1, 0, "run.accepted", json!({"target": {"path": "/p"}})),
+            0,
+        );
+
+        assert!(yes.can_cancel());
+        assert!(!no.can_cancel());
+        assert!(!unknown.can_cancel());
+        assert!(!self::state().can_cancel());
+    }
+
+    #[test]
+    fn a_cancel_request_marks_the_run_as_cancelling_until_it_ends() {
+        let mut state = state();
+
+        state.apply_event(accepted(Value::Null), 0);
+
+        assert!(!state.is_cancelling());
+
+        state.apply_event(event(2, 5, "stage.started", json!({"stage": "build"})), 0);
+        state.apply_event(event(3, 6, "run.cancelling", json!({"stage": "build"})), 0);
+
+        assert!(state.is_cancelling());
+        assert!(!state.is_terminal());
+
+        state.apply_event(
+            event(
+                4,
+                7,
+                "run.cancelled",
+                json!({"stage": "build", "persisted": false}),
+            ),
+            0,
+        );
+
+        assert!(!state.is_cancelling());
+        assert!(state.is_terminal());
+    }
+
+    #[test]
+    fn a_cancelled_run_names_its_stage_and_is_not_a_failure() {
+        let mut state = state();
+
+        state.apply_event(accepted(Value::Null), 0);
+        state.apply_event(
+            event(
+                2,
+                9,
+                "run.cancelled",
+                json!({"stage": "workload", "persisted": false}),
+            ),
+            0,
+        );
+
+        assert_eq!(
+            state.terminal(),
+            Some(&Terminal::Cancelled {
+                stage: Some("workload".to_string())
+            })
+        );
+        assert_eq!(state.cancelled_stage(), Some(Stage::Workload));
+        assert_eq!(state.failed_stage(), None);
+    }
+
+    #[test]
+    fn a_run_cancelled_before_any_step_has_no_stage() {
+        let mut state = state();
+
+        state.apply_event(accepted(Value::Null), 0);
+        state.apply_event(
+            event(
+                2,
+                9,
+                "run.cancelled",
+                json!({"stage": null, "persisted": false}),
+            ),
+            0,
+        );
+
+        assert_eq!(state.cancelled_stage(), None);
+        assert!(state.is_terminal());
+    }
+
+    #[test]
+    fn a_cancelled_run_stops_counting_time() {
+        let mut state = state();
+
+        state.apply_event(accepted(Value::Null), 1_000);
+        state.apply_event(
+            event(2, 4_000, "run.cancelled", json!({"stage": "build"})),
+            2_000,
+        );
+
+        assert_eq!(state.run_elapsed_ms(90_000), 4_000);
+    }
+
+    #[test]
+    fn the_event_log_tells_the_cancellation_in_plain_words() {
+        let mut state = state();
+
+        state.apply_event(accepted(Value::Null), 0);
+        state.apply_event(event(2, 1, "run.cancelling", json!({"stage": "build"})), 0);
+        state.apply_event(event(3, 2, "run.cancelled", json!({"stage": "build"})), 0);
+
+        let lines: Vec<&str> = state.log().iter().map(|line| line.text.as_str()).collect();
+
+        assert_eq!(
+            lines,
+            vec![
+                "Run accepted",
+                "Cancellation requested, stopping Build",
+                "Run cancelled, nothing was stored",
+            ]
+        );
     }
 }

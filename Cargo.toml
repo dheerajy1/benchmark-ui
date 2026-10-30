@@ -17,6 +17,7 @@ envy = "0.4"
 gloo-net = { version = "0.6", default-features = false, features = ["http", "websocket"] }
 futures-util = "0.3"
 gloo-timers = { version = "0.3", features = ["futures"] }
+web-sys = { version = "0.3", features = ["Window", "Storage"] }
 serde_json = "1.0"
 
 [features]
