@@ -1,0 +1,22 @@
+[package]
+name = "benchmark-frontend"
+version = "0.1.0"
+authors = ["dheerajy1 <yssdhiraj@gmail.com>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[workspace]
+members = ["xtask"]
+
+[dependencies]
+dioxus = { version = "0.7.1", features = ["router"] }
+serde = { version = "1.0", features = ["derive"] }
+validator = { version = "0.16", features = ["derive"] }
+envy = "0.4"
+
+[features]
+default = ["web"]
+web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]
