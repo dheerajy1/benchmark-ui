@@ -1,10 +1,10 @@
 use super::models::BenchmarkRequest;
 use crate::features::{
     connection::{post_json, ApiError},
-    run_detail::BenchmarkResult,
+    live::LiveRunAccepted,
 };
 
-// POST /api/v1/benchmarks, blocks until the benchmark finished and is stored
-pub async fn submit_benchmark(request: &BenchmarkRequest) -> Result<BenchmarkResult, ApiError> {
-    post_json("/benchmarks", request).await
+// POST /api/v1/live-runs, answers at once with the run id while the benchmark runs on
+pub async fn submit_live(request: &BenchmarkRequest) -> Result<LiveRunAccepted, ApiError> {
+    post_json("/live-runs", request).await
 }

@@ -3,6 +3,9 @@ use dioxus::prelude::*;
 // Shared class string for text inputs and selects
 pub const INPUT_CLASS: &str = "h-(--control-height) w-full rounded-(--round-md) border border-(color:--clr-border-strong) bg-(--clr-canvas) px-(--space-3) text-(length:--fs-sm) text-(color:--clr-text) transition-colors hover:border-(color:--clr-text-faint) focus:border-(color:--clr-accent) placeholder:text-(color:--clr-text-faint) disabled:cursor-not-allowed disabled:opacity-50";
 
+// Shared class string for multi-line text areas, same look as an input but it grows in height
+pub const TEXTAREA_CLASS: &str = "min-h-24 w-full resize-y rounded-(--round-md) border border-(color:--clr-border-strong) bg-(--clr-canvas) px-(--space-3) py-(--space-2) font-(family-name:--font-code) text-(length:--fs-sm) text-(color:--clr-text) transition-colors hover:border-(color:--clr-text-faint) focus:border-(color:--clr-accent) placeholder:text-(color:--clr-text-faint) disabled:cursor-not-allowed disabled:opacity-50";
+
 // Label, control, hint and error message wired together for assistive technology
 #[component]
 pub fn FormField(
@@ -15,7 +18,7 @@ pub fn FormField(
     let invalid_class = if error.is_empty() {
         ""
     } else {
-        "[&_input]:border-(color:--clr-danger) [&_select]:border-(color:--clr-danger)"
+        "[&_input]:border-(color:--clr-danger) [&_select]:border-(color:--clr-danger) [&_textarea]:border-(color:--clr-danger)"
     };
 
     rsx! {

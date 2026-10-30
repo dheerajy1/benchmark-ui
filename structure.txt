@@ -15,10 +15,10 @@
 │   ├── header.svg
 │   ├── main.css
 │   └── tailwind.css
-├── changes.md
 ├── clippy.toml
 ├── docs/
-│   └── backend-cors.md
+│   ├── backend-cors.md
+│   └── live-run.md
 ├── src/
 │   ├── app.rs
 │   ├── components/
@@ -69,6 +69,14 @@
 │   │   │   ├── run_row.rs
 │   │   │   ├── selection.rs
 │   │   │   └── view.rs
+│   │   ├── live/
+│   │   │   ├── api.rs
+│   │   │   ├── driver.rs
+│   │   │   ├── mod.rs
+│   │   │   ├── models.rs
+│   │   │   ├── pipeline.rs
+│   │   │   ├── state.rs
+│   │   │   └── view.rs
 │   │   ├── mod.rs
 │   │   ├── overview/
 │   │   │   ├── api.rs
@@ -108,4 +116,4 @@
     └── src/
         └── main.rs
 
-18 directories, 89 files
+19 directories, 96 files

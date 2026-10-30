@@ -18,7 +18,7 @@ pub use button::{button_class, ButtonVariant};
 pub use card::{Card, CardHeader};
 pub use definition::Definition;
 pub use delta_badge::{verdict, DeltaBadge, Verdict};
-pub use form_field::{FormField, INPUT_CLASS};
+pub use form_field::{FormField, INPUT_CLASS, TEXTAREA_CLASS};
 pub use icons::{Icon, IconKind};
 pub use page_header::PageHeader;
 pub use stat_tile::StatTile;

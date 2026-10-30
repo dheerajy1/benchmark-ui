@@ -4,6 +4,7 @@ pub mod charts;
 pub mod comparisons;
 pub mod connection;
 pub mod history;
+pub mod live;
 pub mod overview;
 pub mod run_detail;
 pub mod submission;

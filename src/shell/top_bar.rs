@@ -11,6 +11,7 @@ use crate::{
 fn parent(route: &Route) -> Option<(&'static str, Route)> {
     match route {
         Route::RunDetail { .. } => Some(("Runs", Route::History {})),
+        Route::LiveRun { .. } => Some(("New benchmark", Route::Submission {})),
         _ => None,
     }
 }
@@ -21,6 +22,7 @@ fn current_title(route: &Route) -> String {
         Route::Overview {} => "Overview".to_string(),
         Route::History {} => "Runs".to_string(),
         Route::RunDetail { run_id } => format!("Run {}", short_id(run_id)),
+        Route::LiveRun { run_id } => format!("Live run {}", short_id(run_id)),
         Route::Comparisons { .. } => "Compare".to_string(),
         Route::Submission {} => "New benchmark".to_string(),
         Route::NotFound { .. } => "Not found".to_string(),

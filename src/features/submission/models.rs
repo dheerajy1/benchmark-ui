@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 
 // Request body of POST /api/v1/benchmarks, see docs/api.md in benchmark-api
@@ -17,6 +19,9 @@ pub struct ReadinessRequest {
     pub path: String,
     pub method: String,
     pub expected_status: u16,
+    // Left out when empty, so the API probes with its own default health credentials
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -30,6 +35,9 @@ pub struct StartupRequest {
 pub struct WorkloadRequest {
     pub method: String,
     pub path: String,
+    // Sent with every request of the workload, left out when empty
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub headers: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requests: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -41,7 +41,7 @@ pub fn Sidebar(open: Signal<bool>) -> Element {
     let overview_active = matches!(route, Route::Overview {});
     let runs_active = matches!(route, Route::History {} | Route::RunDetail { .. });
     let compare_active = matches!(route, Route::Comparisons { .. });
-    let new_active = matches!(route, Route::Submission {});
+    let new_active = matches!(route, Route::Submission {} | Route::LiveRun { .. });
 
     let drawer_class = if open() {
         "translate-x-0"

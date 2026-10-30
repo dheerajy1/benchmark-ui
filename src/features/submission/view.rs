@@ -1,86 +1,36 @@
 use dioxus::prelude::*;
 
 use super::{
-    api::submit_benchmark,
+    api::submit_live,
     form::{error_for, validate, Field, FieldError, FormState, WorkloadMode},
 };
 use crate::{
     app::Route,
     components::{
-        button_class, Badge, ButtonVariant, Card, CardHeader, FormField, Icon, IconKind,
-        PageHeader, StatTile, Tone, INPUT_CLASS,
+        button_class, ButtonVariant, Card, CardHeader, FormField, Icon, IconKind, PageHeader,
+        INPUT_CLASS, TEXTAREA_CLASS,
     },
     features::{
         connection::{ApiError, ApiErrorPanel},
-        run_detail::BenchmarkResult,
+        live::active_run_id,
     },
-    format::{format_latency_ms, format_per_second, short_id, MISSING},
 };
 
 #[derive(Debug, Clone, PartialEq)]
 enum Phase {
     Editing,
+    // The API is taking the request, it answers with the run id at once
     Running,
-    Done(Box<BenchmarkResult>),
     Failed(ApiError),
 }
 
-// Summary of a finished run with a link to its stored details
-#[component]
-fn Finished(result: BenchmarkResult, on_reset: EventHandler<()>) -> Element {
-    let primary = button_class(ButtonVariant::Primary);
-    let secondary = button_class(ButtonVariant::Secondary);
-    let short = short_id(&result.run_id);
-    let latency = result.metrics.http_latency.as_ref();
-    let throughput = latency.map_or_else(
-        || MISSING.to_string(),
-        |l| format_per_second(l.requests_per_second),
-    );
-    let p95 = latency
-        .and_then(|l| l.p95_ms)
-        .map_or_else(|| MISSING.to_string(), format_latency_ms);
-
-    rsx! {
-        Card {
-            CardHeader {
-                title: "Benchmark completed",
-                subtitle: "The result is stored and appears in the run history.",
-            }
-            div { class: "flex flex-col gap-(--space-4) p-(--space-4)",
-                div { class: "flex items-center gap-(--space-2) text-(length:--fs-xs) text-(color:--clr-text-muted)",
-                    Badge { label: "Completed", tone: Tone::Success }
-                    span { class: "font-(family-name:--font-code)", "Run {short}" }
-                }
-                div { class: "grid grid-cols-2 gap-(--space-3)",
-                    StatTile { label: "Throughput", value: throughput }
-                    StatTile { label: "p95 latency", value: p95 }
-                }
-                div { class: "flex flex-wrap gap-(--space-2)",
-                    Link {
-                        to: Route::RunDetail {
-                            run_id: result.run_id.clone(),
-                        },
-                        class: "{primary}",
-                        "View run {short}"
-                    }
-                    button {
-                        r#type: "button",
-                        class: "{secondary}",
-                        onclick: move |_| on_reset.call(()),
-                        "Run another"
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Form that submits POST /api/v1/benchmarks and waits for the stored result
+// Form that starts a live run and then opens its live view
 #[component]
 pub fn Submission() -> Element {
     let mut form = use_signal(FormState::default);
     let mut errors = use_signal(Vec::<FieldError>::new);
     let mut phase = use_signal(|| Phase::Editing);
+    let nav = use_navigator();
 
     let state = form();
     let current_errors = errors();
@@ -100,27 +50,40 @@ pub fn Submission() -> Element {
         errors.set(Vec::new());
         phase.set(Phase::Running);
 
+        let nav = nav.clone();
+
         spawn(async move {
-            match submit_benchmark(&request).await {
-                Ok(result) => phase.set(Phase::Done(Box::new(result))),
+            match submit_live(&request).await {
+                Ok(accepted) => {
+                    let _ = nav.push(Route::LiveRun {
+                        run_id: accepted.run_id,
+                    });
+                }
                 Err(error) => phase.set(Phase::Failed(error)),
             }
         });
     };
 
     let body: Element = match phase() {
-        Phase::Done(result) => rsx! {
-            Finished {
-                result: *result,
-                on_reset: move |_| {
-                    form.set(FormState::default());
-                    phase.set(Phase::Editing);
-                },
+        Phase::Failed(error) => {
+            // A busy API names the run that holds it, so it can be watched instead
+            let active = active_run_id(&error);
+
+            rsx! {
+                ApiErrorPanel { error, on_retry: move |_| phase.set(Phase::Editing) }
+                if let Some(run_id) = active {
+                    div { class: "mt-(--space-3)",
+                        Link {
+                            to: Route::LiveRun {
+                                run_id,
+                            },
+                            class: "{primary}",
+                            "Watch the active run"
+                        }
+                    }
+                }
             }
-        },
-        Phase::Failed(error) => rsx! {
-            ApiErrorPanel { error, on_retry: move |_| phase.set(Phase::Editing) }
-        },
+        }
         Phase::Editing | Phase::Running => rsx! {
             form {
                 class: "flex flex-col gap-(--space-4)",
@@ -237,6 +200,21 @@ pub fn Submission() -> Element {
                                     }
                                 }
                             }
+                            FormField {
+                                label: "Readiness headers",
+                                hint: "Optional. One per line as Name: value. Leave empty to probe with the API's default health credentials. Never stored.",
+                                error: error_for(&current_errors, Field::ReadinessHeaders),
+                                textarea {
+                                    class: "{TEXTAREA_CLASS}",
+                                    rows: "3",
+                                    spellcheck: "false",
+                                    autocomplete: "off",
+                                    placeholder: "X-Client-Id: my-client\nX-Client-Secret: my-secret",
+                                    value: "{state.readiness_headers}",
+                                    disabled: running,
+                                    oninput: move |event| form.with_mut(|f| f.readiness_headers = event.value()),
+                                }
+                            }
                         }
                     }
                 }
@@ -322,6 +300,21 @@ pub fn Submission() -> Element {
                                     }
                                 }
                             }
+                            FormField {
+                                label: "Request headers",
+                                hint: "Optional. One per line as Name: value, for example X-Client-Id: my-client. Sent with every request of the workload and never stored.",
+                                error: error_for(&current_errors, Field::WorkloadHeaders),
+                                textarea {
+                                    class: "{TEXTAREA_CLASS}",
+                                    rows: "3",
+                                    spellcheck: "false",
+                                    autocomplete: "off",
+                                    placeholder: "X-Client-Id: my-client\nX-Client-Secret: my-secret",
+                                    value: "{state.workload_headers}",
+                                    disabled: running,
+                                    oninput: move |event| form.with_mut(|f| f.workload_headers = event.value()),
+                                }
+                            }
                         }
                     }
                 }
@@ -343,7 +336,7 @@ pub fn Submission() -> Element {
                             role: "status",
                             span { class: "mt-(--space-1) inline-block size-4 shrink-0 animate-spin rounded-(--round-full) border-2 border-(color:--clr-border-strong) border-t-(color:--clr-accent)" }
                             p { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)",
-                                "The API is building, starting and measuring the target. This can take several minutes, keep this tab open."
+                                "Starting the run. You will be taken to its live view in a moment."
                             }
                         }
                     }
@@ -364,7 +357,7 @@ pub fn Submission() -> Element {
         div { class: "mx-auto w-full max-w-(--form-max)",
             PageHeader {
                 title: "New benchmark",
-                description: "Build, start and measure a project. The result is stored in the run history.",
+                description: "Build, start and measure a project. You follow it live while it runs, and the result is stored in the run history.",
                 Link { to: Route::History {}, class: "{secondary}", "All runs" }
             }
             {body}

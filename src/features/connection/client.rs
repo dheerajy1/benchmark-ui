@@ -51,6 +51,27 @@ fn endpoint(path: &str) -> Result<String, ApiError> {
     Ok(format!("{base}{API_PREFIX}{path}"))
 }
 
+// WebSocket URL of an API path, https becomes wss and http becomes ws
+pub fn ws_endpoint(path: &str) -> Result<String, ApiError> {
+    let url = endpoint(path)?;
+
+    to_websocket_url(&url).ok_or_else(|| {
+        ApiError::Config(format!(
+            "API_BASE_URL must start with http:// or https://, got \"{}\".",
+            base_url()
+        ))
+    })
+}
+
+fn to_websocket_url(url: &str) -> Option<String> {
+    if let Some(rest) = url.strip_prefix("https://") {
+        Some(format!("wss://{rest}"))
+    } else {
+        url.strip_prefix("http://")
+            .map(|rest| format!("ws://{rest}"))
+    }
+}
+
 fn network_error(error: gloo_net::Error) -> ApiError {
     mark(ConnectionState::Offline);
 
@@ -146,6 +167,19 @@ mod tests {
     #[derive(Debug, Deserialize, PartialEq)]
     struct Payload {
         value: u32,
+    }
+
+    #[test]
+    fn switches_the_scheme_for_a_websocket() {
+        assert_eq!(
+            to_websocket_url("https://abc.trycloudflare.com/api/v1/live-runs/x/ws"),
+            Some("wss://abc.trycloudflare.com/api/v1/live-runs/x/ws".to_string())
+        );
+        assert_eq!(
+            to_websocket_url("http://127.0.0.1:5001/api/v1/live-runs/x/ws"),
+            Some("ws://127.0.0.1:5001/api/v1/live-runs/x/ws".to_string())
+        );
+        assert_eq!(to_websocket_url("ftp://example.com"), None);
     }
 
     #[test]

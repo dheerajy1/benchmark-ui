@@ -2,8 +2,8 @@ use dioxus::prelude::*;
 
 use crate::{
     features::{
-        comparisons::Comparisons, history::History, overview::Overview, run_detail::RunDetail,
-        submission::Submission,
+        comparisons::Comparisons, history::History, live::LiveRun, overview::Overview,
+        run_detail::RunDetail, submission::Submission,
     },
     shell::{AppShell, NotFound},
 };
@@ -17,6 +17,8 @@ pub enum Route {
         Overview {},
         #[route("/runs")]
         History {},
+        #[route("/runs/live/:run_id")]
+        LiveRun { run_id: String },
         #[route("/runs/:run_id")]
         RunDetail { run_id: String },
         #[route("/compare?:baseline&:comparison")]
