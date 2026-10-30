@@ -1,15 +1,20 @@
 use dioxus::prelude::*;
 
-use super::{api::fetch_run_configuration, lines::configuration_lines};
+use super::{
+    api::fetch_run_configuration,
+    entry::entry_from_result,
+    lines::{configuration_lines, legacy_lines},
+};
 use crate::{
     app::Route,
     components::{button_class, ButtonVariant, Card, CardHeader, Definition, LoadingPanel},
-    features::connection::ApiErrorPanel,
+    features::{connection::ApiErrorPanel, run_detail::BenchmarkResult},
 };
 
-// The settings one run executed with, and the button that starts a new run from them
+// The settings one run executed with, and the button that starts a new run from them. A run
+// stored before configurations were recorded shows what its stored result holds.
 #[component]
-pub fn ConfigurationCard(run_id: String) -> Element {
+pub fn ConfigurationCard(run_id: String, run: BenchmarkResult) -> Element {
     let reactive_id = run_id.clone();
     let mut detail = use_resource(use_reactive!(|(reactive_id,)| async move {
         fetch_run_configuration(&reactive_id).await
@@ -25,22 +30,8 @@ pub fn ConfigurationCard(run_id: String) -> Element {
             ApiErrorPanel { error, on_retry: move |_| detail.restart() }
         },
         Some(Ok(found)) => match found.configuration {
-            Some(config) => {
-                let lines = configuration_lines(&config);
-
-                rsx! {
-                    dl { class: "grid grid-cols-1 gap-(--space-4) md:grid-cols-2",
-                        for (label, value) in lines.iter() {
-                            Definition { label: label.clone(), "{value}" }
-                        }
-                    }
-                }
-            }
-            None => rsx! {
-                p { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)",
-                    "No configuration was recorded for this run, because it was stored before configurations were recorded. The path and start command are still shown in the history, and the button fills them in."
-                }
-            },
+            Some(config) => definition_grid(configuration_lines(&config)),
+            None => definition_grid(legacy_lines(&entry_from_result(&run))),
         },
     };
 
@@ -61,6 +52,16 @@ pub fn ConfigurationCard(run_id: String) -> Element {
                         "Use these settings"
                     }
                 }
+            }
+        }
+    }
+}
+
+fn definition_grid(lines: Vec<(String, String)>) -> Element {
+    rsx! {
+        dl { class: "grid grid-cols-1 gap-(--space-4) md:grid-cols-2",
+            for (label, value) in lines {
+                Definition { label: label, "{value}" }
             }
         }
     }

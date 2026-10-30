@@ -32,7 +32,7 @@ pub struct HistoryRow {
     pub disabled_reason: Option<String>,
 }
 
-// "2026-10-21T14:03:11+00:00" becomes "21 Oct 2026, 14:03". Anything else is shown unchanged.
+// "2026-10-21T14:03:11+00:00" becomes "21 Oct, 14:03". Anything else is shown unchanged.
 pub fn format_when(created_at: &str) -> String {
     let (Some(date), Some(time)) = (created_at.get(0..10), created_at.get(11..16)) else {
         return created_at.to_string();
@@ -40,7 +40,7 @@ pub fn format_when(created_at: &str) -> String {
 
     let parts: Vec<&str> = date.split('-').collect();
 
-    let [year, month, day] = parts.as_slice() else {
+    let [_year, month, day] = parts.as_slice() else {
         return created_at.to_string();
     };
 
@@ -51,10 +51,7 @@ pub fn format_when(created_at: &str) -> String {
         .and_then(|index| MONTHS.get(index));
 
     match month_name {
-        Some(month_name) => format!(
-            "{} {month_name} {year}, {time}",
-            day.trim_start_matches('0')
-        ),
+        Some(month_name) => format!("{} {month_name}, {time}", day.trim_start_matches('0')),
         None => created_at.to_string(),
     }
 }
@@ -255,10 +252,7 @@ mod tests {
 
     #[test]
     fn formats_the_time_of_a_run_for_the_list() {
-        assert_eq!(
-            format_when("2026-10-21T14:03:11+00:00"),
-            "21 Oct 2026, 14:03"
-        );
+        assert_eq!(format_when("2026-10-21T14:03:11+00:00"), "21 Oct, 14:03");
         assert_eq!(format_when("not a date"), "not a date");
     }
 }

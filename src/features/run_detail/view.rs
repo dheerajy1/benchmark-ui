@@ -100,7 +100,7 @@ pub fn RunDetail(run_id: String) -> Element {
                         span { class: "min-w-0 break-all font-(family-name:--font-code)", "{result.target.path}" }
                     }
                     Headline { result: result.clone() }
-                    ConfigurationCard { run_id: run_id.clone() }
+                    ConfigurationCard { run_id: run_id.clone(), run: result.clone() }
                     HttpSection { latency: metrics.http_latency.clone() }
                     ResourceSection { memory: metrics.memory.clone(), cpu: metrics.cpu.clone() }
                     StepsSection {

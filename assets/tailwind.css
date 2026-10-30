@@ -266,9 +266,6 @@
   .mt-px {
     margin-top: 1px;
   }
-  .mb-\(--space-4\) {
-    margin-bottom: var(--space-4);
-  }
   .-ml-2 {
     margin-left: calc(var(--spacing) * -2);
   }

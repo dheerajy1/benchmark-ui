@@ -3,12 +3,14 @@
 
 mod api;
 mod card;
+mod entry;
 mod grouping;
 mod lines;
 mod models;
 
-pub use api::{fetch_configurations, fetch_run_configuration};
+pub use api::fetch_configurations;
 pub use card::ConfigurationCard;
+pub use entry::fetch_entry;
 pub use grouping::{group, header_names_of, ConfigurationGroup};
-pub use lines::{compare_configurations, ConfigurationDifference};
+pub use lines::{compare_entries, ConfigurationComparison, FieldChange};
 pub use models::{ConfigurationEntry, StartupSummary};

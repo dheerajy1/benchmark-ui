@@ -49,20 +49,12 @@
 │   │   │   └── scale.rs
 │   │   ├── comparisons/
 │   │   │   ├── api.rs
-│   │   │   ├── config_notice.rs
 │   │   │   ├── mod.rs
 │   │   │   ├── models.rs
 │   │   │   ├── picker.rs
 │   │   │   ├── results.rs
 │   │   │   ├── rows.rs
 │   │   │   └── view.rs
-│   │   ├── configurations/
-│   │   │   ├── api.rs
-│   │   │   ├── card.rs
-│   │   │   ├── grouping.rs
-│   │   │   ├── lines.rs
-│   │   │   ├── mod.rs
-│   │   │   └── models.rs
 │   │   ├── connection/
 │   │   │   ├── client.rs
 │   │   │   ├── error.rs
@@ -104,19 +96,12 @@
 │   │   │   ├── models.rs
 │   │   │   ├── sections.rs
 │   │   │   └── view.rs
-│   │   ├── submission/
-│   │   │   ├── api.rs
-│   │   │   ├── form.rs
-│   │   │   ├── history_panel.rs
-│   │   │   ├── mod.rs
-│   │   │   ├── models.rs
-│   │   │   ├── prefill.rs
-│   │   │   ├── target_run.rs
-│   │   │   └── view.rs
-│   │   └── targets/
+│   │   └── submission/
 │   │       ├── api.rs
+│   │       ├── form.rs
 │   │       ├── mod.rs
-│   │       └── models.rs
+│   │       ├── models.rs
+│   │       └── view.rs
 │   ├── format.rs
 │   ├── main.rs
 │   ├── schemas/
@@ -134,4 +119,4 @@
     └── src/
         └── main.rs
 
-21 directories, 112 files
+19 directories, 99 files

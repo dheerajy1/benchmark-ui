@@ -1,27 +1,10 @@
-use super::models::{ConfigurationDetail, RecordedConfiguration};
+use super::models::{ConfigurationEntry, RecordedConfiguration, StartupSummary};
 
-// The settings of a recorded run as label and value pairs. Header names only, never values.
-pub fn configuration_lines(config: &RecordedConfiguration) -> Vec<(String, String)> {
-    let source = if config.source == "target" {
-        let name = config
-            .target_name
-            .clone()
-            .or_else(|| config.target_id.clone())
-            .unwrap_or_default();
+// The settings of a run as label and value pairs. Header names only, never values.
 
-        format!("Saved target: {name}")
-    } else {
-        "Custom".to_string()
-    };
-
-    let mut lines = vec![
-        ("Source".to_string(), source),
-        ("Path".to_string(), config.target_path.clone()),
-    ];
-
-    let startup = config.startup.as_ref();
-
-    let command = match startup.and_then(|startup| startup.program.as_ref()) {
+// "bun run dev", or "None" when the run had no start command
+pub fn command_text(startup: Option<&StartupSummary>) -> String {
+    match startup.and_then(|startup| startup.program.as_ref()) {
         Some(program) => {
             let args = startup
                 .and_then(|startup| startup.args.clone())
@@ -31,13 +14,12 @@ pub fn configuration_lines(config: &RecordedConfiguration) -> Vec<(String, Strin
             format!("{program} {args}").trim().to_string()
         }
         None => "None".to_string(),
-    };
+    }
+}
 
-    lines.push(("Start command".to_string(), command));
-
-    let readiness = startup.and_then(|startup| startup.readiness.as_ref());
-
-    let readiness_text = match readiness {
+// "127.0.0.1:5000 /health (GET → 200)", or "None" when no readiness was recorded
+pub fn readiness_text(startup: Option<&StartupSummary>) -> String {
+    match startup.and_then(|startup| startup.readiness.as_ref()) {
         Some(readiness) => format!(
             "{}:{} {} ({} → {})",
             readiness.host,
@@ -47,19 +29,47 @@ pub fn configuration_lines(config: &RecordedConfiguration) -> Vec<(String, Strin
             readiness.expected_status
         ),
         None => "None".to_string(),
-    };
+    }
+}
 
-    lines.push(("Readiness".to_string(), readiness_text));
+// The source of a recorded run. A saved target shows its name and its id.
+fn source_text(config: &RecordedConfiguration) -> String {
+    if config.source != "target" {
+        return "Custom".to_string();
+    }
 
-    let readiness_headers = match readiness {
+    match (config.target_name.as_deref(), config.target_id.as_deref()) {
+        (Some(name), Some(id)) => format!("Saved target: {name} ({id})"),
+        (None, Some(id)) => format!("Saved target: {id}"),
+        (Some(name), None) => format!("Saved target: {name}"),
+        (None, None) => "Saved target".to_string(),
+    }
+}
+
+fn readiness_headers_text(startup: Option<&StartupSummary>) -> String {
+    match startup.and_then(|startup| startup.readiness.as_ref()) {
         Some(readiness) => match &readiness.header_names {
             Some(names) => names_text(names),
             None => "Server health credentials".to_string(),
         },
         None => "None".to_string(),
-    };
+    }
+}
 
-    lines.push(("Readiness headers".to_string(), readiness_headers));
+// Every setting of a run with a recorded configuration
+pub fn configuration_lines(config: &RecordedConfiguration) -> Vec<(String, String)> {
+    let startup = config.startup.as_ref();
+
+    let mut lines = vec![
+        ("Source".to_string(), source_text(config)),
+        ("Path".to_string(), config.target_path.clone()),
+        ("Start command".to_string(), command_text(startup)),
+        ("Readiness".to_string(), readiness_text(startup)),
+        (
+            "Readiness headers".to_string(),
+            readiness_headers_text(startup),
+        ),
+    ];
 
     match &config.workload {
         Some(workload) => {
@@ -86,6 +96,27 @@ pub fn configuration_lines(config: &RecordedConfiguration) -> Vec<(String, Strin
     lines
 }
 
+// The settings of a run stored before configurations were recorded, from the existing tables
+pub fn legacy_lines(entry: &ConfigurationEntry) -> Vec<(String, String)> {
+    vec![
+        ("Source".to_string(), "Unknown".to_string()),
+        ("Path".to_string(), entry.path.clone()),
+        (
+            "Start command".to_string(),
+            command_text(entry.startup.as_ref()),
+        ),
+        (
+            "Readiness".to_string(),
+            readiness_text(entry.startup.as_ref()),
+        ),
+        ("Readiness headers".to_string(), "Not recorded".to_string()),
+        (
+            "Workload".to_string(),
+            "Not recorded (made before configurations were recorded)".to_string(),
+        ),
+    ]
+}
+
 fn names_text(names: &[String]) -> String {
     if names.is_empty() {
         "None".to_string()
@@ -94,52 +125,108 @@ fn names_text(names: &[String]) -> String {
     }
 }
 
-// Whether two runs used the same settings
+// One setting that differs between two runs
 #[derive(Debug, Clone, PartialEq)]
-pub enum ConfigurationDifference {
-    // Both runs recorded the same settings
-    Same,
-    // At least one run has no recorded configuration, so the settings cannot be checked
-    NotComparable,
-    // The recorded settings differ in these fields, by label
-    Differs(Vec<String>),
+pub struct FieldChange {
+    pub label: String,
+    pub baseline: String,
+    pub comparison: String,
 }
 
-pub fn compare_configurations(
-    baseline: &ConfigurationDetail,
-    comparison: &ConfigurationDetail,
-) -> ConfigurationDifference {
-    let (Some(left), Some(right)) = (&baseline.configuration, &comparison.configuration) else {
-        return ConfigurationDifference::NotComparable;
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConfigurationComparison {
+    // Both runs recorded the same settings
+    Same,
+    // Both runs recorded their settings, and these settings differ
+    Changed(Vec<FieldChange>),
+    // A run has no recorded workload. Only the start command and readiness were compared, and
+    // `changes` lists the differences in them. `unrecorded` holds the ids of those runs.
+    Partial {
+        unrecorded: Vec<String>,
+        changes: Vec<FieldChange>,
+    },
+}
+
+pub fn compare_entries(
+    baseline: &ConfigurationEntry,
+    comparison: &ConfigurationEntry,
+) -> ConfigurationComparison {
+    match (&baseline.configuration, &comparison.configuration) {
+        (Some(left), Some(right)) => {
+            let changes = differences(&configuration_lines(left), &configuration_lines(right));
+
+            if changes.is_empty() {
+                ConfigurationComparison::Same
+            } else {
+                ConfigurationComparison::Changed(changes)
+            }
+        }
+        _ => {
+            let mut unrecorded = Vec::new();
+
+            if baseline.configuration.is_none() {
+                unrecorded.push(baseline.run_id.clone());
+            }
+
+            if comparison.configuration.is_none() {
+                unrecorded.push(comparison.run_id.clone());
+            }
+
+            let changes = differences(&partial_lines(baseline), &partial_lines(comparison));
+
+            ConfigurationComparison::Partial {
+                unrecorded,
+                changes,
+            }
+        }
+    }
+}
+
+// The start command and readiness of a run, the only settings every run has
+fn partial_lines(entry: &ConfigurationEntry) -> Vec<(String, String)> {
+    let all = match &entry.configuration {
+        Some(config) => configuration_lines(config),
+        None => legacy_lines(entry),
     };
 
-    let left_lines = configuration_lines(left);
-    let right_lines = configuration_lines(right);
+    all.into_iter()
+        .filter(|(label, _)| label.as_str() == "Start command" || label.as_str() == "Readiness")
+        .collect()
+}
 
-    let mut changed: Vec<String> = Vec::new();
+// Labels whose values differ, the labels of the first run first, then labels only the second has
+fn differences(left: &[(String, String)], right: &[(String, String)]) -> Vec<FieldChange> {
+    let mut labels: Vec<&String> = left.iter().map(|(label, _)| label).collect();
 
-    for (label, value) in &left_lines {
-        let other = right_lines
-            .iter()
-            .find(|(other_label, _)| other_label == label)
-            .map(|(_, other_value)| other_value);
-
-        if other != Some(value) {
-            changed.push(label.clone());
+    for (label, _) in right {
+        if !labels.contains(&label) {
+            labels.push(label);
         }
     }
 
-    for (label, _) in &right_lines {
-        if !left_lines.iter().any(|(existing, _)| existing == label) {
-            changed.push(label.clone());
+    let mut changes = Vec::new();
+
+    for label in labels {
+        let baseline = value_of(left, label);
+        let comparison = value_of(right, label);
+
+        if baseline != comparison {
+            changes.push(FieldChange {
+                label: label.clone(),
+                baseline: baseline.unwrap_or_else(|| "None".to_string()),
+                comparison: comparison.unwrap_or_else(|| "None".to_string()),
+            });
         }
     }
 
-    if changed.is_empty() {
-        ConfigurationDifference::Same
-    } else {
-        ConfigurationDifference::Differs(changed)
-    }
+    changes
+}
+
+fn value_of(lines: &[(String, String)], label: &str) -> Option<String> {
+    lines
+        .iter()
+        .find(|(existing, _)| existing.as_str() == label)
+        .map(|(_, value)| value.clone())
 }
 
 #[cfg(test)]
@@ -148,11 +235,9 @@ mod tests {
 
     use super::*;
 
-    fn detail(concurrency: u64) -> ConfigurationDetail {
-        serde_json::from_value(json!({
-            "run_id": "r",
-            "recorded": true,
-            "configuration": {
+    fn entry(run_id: &str, concurrency: Option<u64>) -> ConfigurationEntry {
+        let configuration = match concurrency {
+            Some(concurrency) => json!({
                 "source": "custom", "target_id": null, "target_name": null,
                 "target_path": "/p", "startup": null,
                 "workload": {
@@ -160,37 +245,51 @@ mod tests {
                     "requests": 10, "duration_seconds": null,
                     "concurrency": concurrency, "header_names": []
                 }
-            }
+            }),
+            None => json!(null),
+        };
+
+        serde_json::from_value(json!({
+            "run_id": run_id,
+            "created_at": "2026-10-20T14:03:11+00:00",
+            "path": "/p",
+            "startup": null,
+            "recorded": concurrency.is_some(),
+            "configuration": configuration
         }))
-        .expect("valid detail")
-    }
-
-    fn not_recorded() -> ConfigurationDetail {
-        serde_json::from_value(json!({ "run_id": "old", "recorded": false, "configuration": null }))
-            .expect("valid detail")
+        .expect("valid entry")
     }
 
     #[test]
-    fn identical_settings_are_the_same() {
+    fn identical_recorded_runs_are_the_same() {
         assert_eq!(
-            compare_configurations(&detail(5), &detail(5)),
-            ConfigurationDifference::Same
+            compare_entries(&entry("a", Some(5)), &entry("b", Some(5))),
+            ConfigurationComparison::Same
         );
     }
 
     #[test]
-    fn a_changed_field_is_named() {
+    fn a_changed_setting_shows_both_values() {
         assert_eq!(
-            compare_configurations(&detail(5), &detail(7)),
-            ConfigurationDifference::Differs(vec!["Concurrency".to_string()])
+            compare_entries(&entry("a", Some(5)), &entry("b", Some(7))),
+            ConfigurationComparison::Changed(vec![FieldChange {
+                label: "Concurrency".to_string(),
+                baseline: "5".to_string(),
+                comparison: "7".to_string(),
+            }])
         );
     }
 
     #[test]
-    fn a_run_without_a_configuration_is_not_comparable() {
+    fn an_unrecorded_run_compares_only_its_start_command_and_readiness() {
+        let comparison = compare_entries(&entry("old", None), &entry("new", Some(5)));
+
         assert_eq!(
-            compare_configurations(&not_recorded(), &detail(5)),
-            ConfigurationDifference::NotComparable
+            comparison,
+            ConfigurationComparison::Partial {
+                unrecorded: vec!["old".to_string()],
+                changes: Vec::new(),
+            }
         );
     }
 }

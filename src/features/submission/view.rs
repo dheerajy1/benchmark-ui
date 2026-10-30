@@ -14,7 +14,9 @@ use crate::{
         LoadingPanel, PageHeader, INPUT_CLASS, TEXTAREA_CLASS,
     },
     features::{
-        configurations::{fetch_configurations, group, ConfigurationEntry, ConfigurationGroup},
+        configurations::{
+            fetch_configurations, fetch_entry, group, ConfigurationEntry, ConfigurationGroup,
+        },
         connection::{ApiError, ApiErrorPanel},
         live::{active_run_id, save_token, SessionTokenStore},
         targets::{fetch_targets, TargetView, TargetsView},
@@ -122,6 +124,65 @@ fn names_text(names: &[String]) -> String {
     }
 }
 
+// The signals a filled form writes to, copied into the effect and into the lookup of a run
+#[derive(Clone, Copy)]
+struct FillSignals {
+    form: Signal<FormState>,
+    errors: Signal<Vec<FieldError>>,
+    target_form: Signal<Option<TargetForm>>,
+    target_error: Signal<Option<String>>,
+    start_mode: Signal<StartMode>,
+    banner: Signal<Option<Banner>>,
+}
+
+// Fills the form from a run's settings and shows the banner. Nothing starts.
+fn fill_from_entry(mut signals: FillSignals, entry: ConfigurationEntry, view: &TargetsView) {
+    let short = crate::format::short_id(&entry.run_id);
+
+    let text = if entry.created_at.is_empty() {
+        format!("Filled from run {short}. Review and edit before starting.")
+    } else {
+        format!(
+            "Filled from run {short} ({}). Review and edit before starting.",
+            format_when(&entry.created_at)
+        )
+    };
+
+    match prefill_for(&entry, view) {
+        Prefill::Target { form: filled } => {
+            signals.target_form.set(Some(filled));
+            signals.target_error.set(None);
+            signals.start_mode.set(StartMode::Target);
+            signals.banner.set(Some(Banner {
+                text,
+                notice: None,
+                header_names: Vec::new(),
+            }));
+        }
+        Prefill::Custom {
+            form: filled,
+            notice,
+            header_names,
+        } => {
+            signals.form.set(filled);
+            signals.errors.set(Vec::new());
+            signals.start_mode.set(StartMode::Custom);
+            signals.banner.set(Some(Banner {
+                text,
+                notice,
+                header_names,
+            }));
+        }
+        Prefill::Unavailable { reason } => {
+            signals.banner.set(Some(Banner {
+                text: reason,
+                notice: None,
+                header_names: Vec::new(),
+            }));
+        }
+    }
+}
+
 // The New Benchmark page opened from a run's "Use these settings" button
 #[component]
 pub fn SubmissionFrom(run_id: String) -> Element {
@@ -183,7 +244,7 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
     });
 
     // Fills the form from the run that was opened with "Use these settings", once the targets and
-    // the runs have loaded. It runs only once.
+    // the runs have loaded. It runs only once. A run outside the 200 most recent is looked up.
     let mut from_handled = use_signal(|| false);
     let from_id = from_run.clone();
     use_effect(move || {
@@ -205,55 +266,35 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
 
         from_handled.set(true);
 
-        let Some(entry) = all_runs().into_iter().find(|entry| entry.run_id == run_id) else {
-            banner.set(Some(Banner {
-                text: format!(
-                    "Run {} is not among the most recent runs, so its settings cannot be filled in.",
-                    crate::format::short_id(&run_id)
-                ),
-                notice: None,
-                header_names: Vec::new(),
-            }));
-            return;
+        let signals = FillSignals {
+            form,
+            errors,
+            target_form,
+            target_error,
+            start_mode,
+            banner,
         };
 
-        let text = format!(
-            "Filled from run {} ({}). Review and edit before starting.",
-            crate::format::short_id(&run_id),
-            format_when(&entry.created_at)
-        );
+        match all_runs().into_iter().find(|entry| entry.run_id == run_id) {
+            Some(entry) => fill_from_entry(signals, entry, &view),
+            None => {
+                spawn(async move {
+                    match fetch_entry(&run_id).await {
+                        Ok(entry) => fill_from_entry(signals, entry, &view),
+                        Err(_) => {
+                            let mut signals = signals;
 
-        match prefill_for(&entry, &view) {
-            Prefill::Target { form: filled } => {
-                target_form.set(Some(filled));
-                target_error.set(None);
-                start_mode.set(StartMode::Target);
-                banner.set(Some(Banner {
-                    text,
-                    notice: None,
-                    header_names: Vec::new(),
-                }));
-            }
-            Prefill::Custom {
-                form: filled,
-                notice,
-                header_names,
-            } => {
-                form.set(filled);
-                errors.set(Vec::new());
-                start_mode.set(StartMode::Custom);
-                banner.set(Some(Banner {
-                    text,
-                    notice,
-                    header_names,
-                }));
-            }
-            Prefill::Unavailable { reason } => {
-                banner.set(Some(Banner {
-                    text: reason,
-                    notice: None,
-                    header_names: Vec::new(),
-                }));
+                            signals.banner.set(Some(Banner {
+                                text: format!(
+                                    "Run {} could not be loaded, so its settings cannot be filled in.",
+                                    crate::format::short_id(&run_id)
+                                ),
+                                notice: None,
+                                header_names: Vec::new(),
+                            }));
+                        }
+                    }
+                });
             }
         }
     });
@@ -993,7 +1034,15 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
 
     rsx! {
         document::Title { "New benchmark · Benchmark" }
-        div { class: "mx-auto w-full max-w-(--form-max)",
+        div {
+            class: "mx-auto w-full max-w-(--form-max)",
+            // Escape closes the Previous runs panel from anywhere on the page, including the
+            // button that opened it
+            onkeydown: move |event| {
+                if history_open() && format!("{:?}", event.key()) == "Escape" {
+                    history_open.set(false);
+                }
+            },
             PageHeader {
                 title: "New benchmark",
                 description: "Build, start and measure a project. You follow it live while it runs, and the result is stored in the run history.",
