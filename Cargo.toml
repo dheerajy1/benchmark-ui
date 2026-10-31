@@ -1,5 +1,5 @@
 [package]
-name = "benchmark-frontend"
+name = "benchmark-ui"
 version = "0.1.0"
 authors = ["dheerajy1 <yssdhiraj@gmail.com>"]
 edition = "2021"

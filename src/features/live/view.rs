@@ -5,7 +5,7 @@ use super::{
     cancel_control::CancelControl,
     driver::{follow, FeedState},
     pipeline::Pipeline,
-    state::{LiveState, Progress, SamplePoint, Stage, Terminal},
+    state::{mode_title, workspace_series, LiveState, Progress, SamplePoint, Stage, Terminal},
     token::{forget_token, load_token, SessionTokenStore},
 };
 use crate::{
@@ -15,12 +15,12 @@ use crate::{
         PageHeader, StatTile, Tone,
     },
     features::{
-        charts::{ChartTone, TrendChart},
-        run_detail::BenchmarkResult,
+        charts::{ChartTone, SeriesPoint, TrendChart},
+        run_detail::{BenchmarkResult, WorkspacesSection},
     },
     format::{
         format_bytes, format_duration_ms, format_latency_ms, format_number, format_per_second,
-        format_percent, path_tail, short_id, ValueFormat, MISSING,
+        format_percent, humanize_code, path_tail, short_id, ValueFormat, MISSING,
     },
 };
 
@@ -111,6 +111,10 @@ fn LivePage(run_id: String) -> Element {
                     Pipeline { state, clock }
                     LiveTiles { state }
                     LiveCharts { state }
+                    WorkspaceLiveSection { state }
+                }
+                WorkspaceResults { state }
+                if !state.read().is_recovered() {
                     EventLog { state }
                 }
             }
@@ -520,6 +524,125 @@ fn LiveCharts(state: Signal<LiveState>) -> Element {
                 }
             }
         }
+    }
+}
+
+// The workspace modes of the run: where the current one is with its memory and CPU, and a line
+// chart of the readings of every mode. The charts stay after the run ends, the stored result
+// only keeps the summary numbers.
+#[component]
+fn WorkspaceLiveSection(state: Signal<LiveState>) -> Element {
+    let (modes, running) = {
+        let state = state.read();
+
+        (state.workspace_modes(), !state.is_terminal())
+    };
+
+    let Some(live) = modes.last().cloned() else {
+        return rsx! {};
+    };
+
+    let latest = live.points.last();
+
+    let now = format!("{} · {}", live.workspace, mode_title(&live.mode));
+    let phase = match live.phase.as_str() {
+        "started" => "Building and starting, nothing to sample yet".to_string(),
+        "sampling" => "Sampling memory and CPU".to_string(),
+        _ => format!(
+            "Finished · {}",
+            humanize_code(live.status.as_deref().unwrap_or("done"))
+        ),
+    };
+    let memory_now = latest
+        .and_then(|point| point.rss_bytes)
+        .map_or_else(|| MISSING.to_string(), |bytes| format_bytes(bytes as f64));
+    let memory_hint = latest
+        .and_then(|point| point.peak_rss_bytes)
+        .map(|bytes| format!("peak {}", format_bytes(bytes as f64)))
+        .unwrap_or_default();
+    let cpu_now = latest
+        .and_then(|point| point.cpu_interval.or(point.cpu_average))
+        .map_or_else(|| MISSING.to_string(), format_percent);
+    let cpu_hint = match latest.and_then(|point| point.cpu_average.zip(point.cpu_peak)) {
+        Some((average, peak)) => format!(
+            "average {} · peak {}",
+            format_percent(average),
+            format_percent(peak)
+        ),
+        None => String::new(),
+    };
+    let sampled = latest.map_or_else(
+        || MISSING.to_string(),
+        |point| format_duration_ms(point.elapsed_ms as f64),
+    );
+
+    // One pair of charts per mode that has readings
+    let charts: Vec<(String, Vec<SeriesPoint>, Vec<SeriesPoint>)> = modes
+        .iter()
+        .filter(|mode| !mode.points.is_empty())
+        .map(|mode| {
+            (
+                format!("{} · {}", mode.workspace, mode_title(&mode.mode)),
+                workspace_series(mode, |point| point.rss_bytes.map(|bytes| bytes as f64)),
+                workspace_series(mode, |point| point.cpu_interval),
+            )
+        })
+        .collect();
+
+    let subtitle = "Readings while the mode was sampled, one every 500 ms.";
+
+    rsx! {
+        div { class: "flex flex-col gap-(--space-3)",
+            if running {
+                div {
+                    class: "grid grid-cols-2 gap-(--space-3) md:grid-cols-4",
+                    "aria-label": "Live workspace measurements",
+                    StatTile { label: "Workspace now", value: now, hint: phase }
+                    StatTile { label: "Memory (RSS)", value: memory_now, hint: memory_hint }
+                    StatTile { label: "CPU", value: cpu_now, hint: cpu_hint }
+                    StatTile { label: "Sampled for", value: sampled }
+                }
+            }
+            for (title , memory , cpu) in charts {
+                div { key: "{title}", class: "grid gap-(--space-4) lg:grid-cols-2",
+                    Card {
+                        CardHeader { title: "{title} memory (RSS)", subtitle }
+                        div { class: "p-(--space-4)",
+                            TrendChart {
+                                title: "{title} memory",
+                                points: memory,
+                                format: ValueFormat::Bytes,
+                                tone: ChartTone::Cyan,
+                            }
+                        }
+                    }
+                    Card {
+                        CardHeader { title: "{title} CPU", subtitle }
+                        div { class: "p-(--space-4)",
+                            TrendChart {
+                                title: "{title} CPU",
+                                points: cpu,
+                                format: ValueFormat::Percent,
+                                tone: ChartTone::Amber,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The final numbers of every workspace mode, once the run is stored
+#[component]
+fn WorkspaceResults(state: Signal<LiveState>) -> Element {
+    let workspaces = match state.read().terminal() {
+        Some(Terminal::Completed(Some(result))) => result.metrics.workspaces.clone(),
+        _ => Vec::new(),
+    };
+
+    rsx! {
+        WorkspacesSection { workspaces }
     }
 }
 

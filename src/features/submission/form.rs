@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::models::{
     BenchmarkRequest, CommandRequest, ReadinessRequest, StartupRequest, WorkloadRequest,
 };
+use super::workspace::{self, WorkspaceForm};
 
 // Longest sustained workload the API accepts, mirrors the backend rule
 const MAX_DURATION_SECONDS: u64 = 300;
@@ -32,6 +33,8 @@ pub enum Field {
     WorkloadPath,
     Amount,
     Concurrency,
+    // One message for the whole workspace section, it names the input that is wrong
+    Workspace,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +62,7 @@ pub struct FormState {
     pub mode: WorkloadMode,
     pub amount: String,
     pub concurrency: String,
+    pub workspace: WorkspaceForm,
 }
 
 impl Default for FormState {
@@ -79,6 +83,7 @@ impl Default for FormState {
             mode: WorkloadMode::Requests,
             amount: String::new(),
             concurrency: String::new(),
+            workspace: WorkspaceForm::default(),
         }
     }
 }
@@ -303,6 +308,13 @@ pub fn validate(state: &FormState) -> Result<BenchmarkRequest, Vec<FieldError>> 
         }
     }
 
+    let mut workspaces = Vec::new();
+    match workspace::validate(&state.workspace) {
+        Ok(Some(request)) => workspaces.push(request),
+        Ok(None) => {}
+        Err(message) => fail(Field::Workspace, &message),
+    }
+
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -311,6 +323,7 @@ pub fn validate(state: &FormState) -> Result<BenchmarkRequest, Vec<FieldError>> 
         path,
         startup,
         workload,
+        workspaces,
     })
 }
 

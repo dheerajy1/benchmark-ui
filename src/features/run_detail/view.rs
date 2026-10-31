@@ -4,6 +4,7 @@ use super::{
     api::fetch_run,
     models::BenchmarkResult,
     sections::{ArtifactSection, HttpSection, ResourceSection, StepsSection},
+    workspaces::WorkspacesSection,
 };
 use crate::{
     app::Route,
@@ -108,6 +109,7 @@ pub fn RunDetail(run_id: String) -> Element {
                         startup_step: metrics.startup_time.clone(),
                     }
                     ArtifactSection { artifacts: metrics.artifact_size.clone() }
+                    WorkspacesSection { workspaces: metrics.workspaces.clone() }
                 }
             }
         }

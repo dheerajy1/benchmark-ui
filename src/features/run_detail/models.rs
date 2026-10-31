@@ -111,6 +111,65 @@ pub struct HttpLatency {
     pub max_ms: Option<f64>,
 }
 
+// One mode (native or docker) of one workspace, see metrics.workspaces in docs/api.md of
+// benchmark-api. A mode that could not be measured keeps its status and null numbers.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct WorkspaceResult {
+    pub name: String,
+    // "native" or "docker"
+    pub mode: String,
+    pub status: String,
+    #[serde(default)]
+    pub message: Option<String>,
+    // Names only, the API never returns a value
+    #[serde(default)]
+    pub env_variable_names: Vec<String>,
+    #[serde(default)]
+    pub build: Option<WorkspaceBuild>,
+    #[serde(default)]
+    pub image: Option<ImageSize>,
+    #[serde(default)]
+    pub startup: Option<WorkspaceStartup>,
+    #[serde(default)]
+    pub memory: Option<Memory>,
+    #[serde(default)]
+    pub cpu: Option<Cpu>,
+    #[serde(default)]
+    pub load: Option<WorkspaceLoad>,
+    #[serde(default)]
+    pub idle_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct WorkspaceBuild {
+    pub status: String,
+    pub duration_ms: u64,
+    #[serde(default)]
+    pub exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ImageSize {
+    pub bytes: u64,
+    pub size: String,
+    // Unpacked size on disk, absent when Docker did not report it
+    #[serde(default)]
+    pub disk_usage: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct WorkspaceStartup {
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct WorkspaceLoad {
+    pub status: String,
+    #[serde(default)]
+    pub exit_code: Option<i32>,
+    pub duration_ms: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Metrics {
     pub artifact_size: ArtifactSize,
@@ -122,6 +181,9 @@ pub struct Metrics {
     pub cpu: Option<Cpu>,
     #[serde(default)]
     pub http_latency: Option<HttpLatency>,
+    // Absent when the run had no workspace
+    #[serde(default)]
+    pub workspaces: Vec<WorkspaceResult>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -199,5 +261,51 @@ mod tests {
         assert!(result.metrics.memory.is_none());
         assert!(result.metrics.cpu.is_none());
         assert!(result.metrics.http_latency.is_none());
+    }
+
+    #[test]
+    fn parses_workspace_results_and_their_absence() {
+        let body = r#"{
+            "run_id": "a", "target": { "path": "/p" },
+            "metrics": {
+                "artifact_size": {
+                    "source": { "bytes": 0, "size": "0 B", "file_count": 0 },
+                    "build": { "bytes": 0, "size": "0 B", "file_count": 0 },
+                    "excluded": { "bytes": 0, "size": "0 B", "file_count": 0 }
+                },
+                "build_time": { "status": "no_build_command" },
+                "startup_time": { "status": "no_start_command" },
+                "workspaces": [
+                    { "name": "subscriber", "mode": "docker", "status": "success",
+                      "env_variable_names": ["A"],
+                      "build": { "status": "success", "duration_ms": 5, "exit_code": 0 },
+                      "image": { "bytes": 10, "size": "10 B" },
+                      "startup": { "duration_ms": 7 },
+                      "memory": {
+                        "baseline": { "rss_bytes": 1, "rss_size": "1 B" },
+                        "peak": { "rss_bytes": 3, "rss_size": "3 B" },
+                        "delta": { "rss_bytes": 2, "rss_size": "2 B" } },
+                      "cpu": { "baseline_percent": 1.0, "average_percent": 2.0, "peak_percent": 3.0 },
+                      "load": { "status": "success", "exit_code": 0, "duration_ms": 9 },
+                      "idle_seconds": null },
+                    { "name": "subscriber", "mode": "native", "status": "timeout",
+                      "message": "The ready line was not seen within 60 seconds" }
+                ]
+            }
+        }"#;
+
+        let result: BenchmarkResult = serde_json::from_str(body).expect("parses");
+
+        assert_eq!(result.metrics.workspaces.len(), 2);
+        assert_eq!(
+            result.metrics.workspaces[0].image.as_ref().unwrap().bytes,
+            10
+        );
+        assert!(result.metrics.workspaces[1].memory.is_none());
+
+        let plain = body.replace("\"workspaces\"", "\"ignored\"");
+        let result: BenchmarkResult = serde_json::from_str(&plain).expect("parses");
+
+        assert!(result.metrics.workspaces.is_empty());
     }
 }

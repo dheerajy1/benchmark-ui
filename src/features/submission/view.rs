@@ -4,8 +4,10 @@ use super::{
     api::{submit_live, submit_target_live},
     form::{error_for, validate, Field, FieldError, FormState, WorkloadMode},
     history_panel::{format_when, now_epoch_ms, row_for, HistoryPanel, HistoryRow},
+    import_section::ImportSection,
     prefill::{prefill_for, Prefill},
     target_run::{validate_target, TargetForm},
+    workspace_section::WorkspaceSection,
 };
 use crate::{
     app::Route,
@@ -111,6 +113,28 @@ fn target_lines(target: &TargetView) -> Vec<(&'static str, String)> {
         lines.push(("Default amount", amount));
         lines.push(("Concurrency", workload.concurrency.to_string()));
         lines.push(("Workload headers", names_text(&workload.header_names)));
+    }
+
+    for workspace in &target.workspaces {
+        let mut modes = Vec::new();
+
+        if workspace.native.is_some() {
+            modes.push("native");
+        }
+
+        if workspace.docker.is_some() {
+            modes.push("Docker");
+        }
+
+        lines.push((
+            "Workspace",
+            format!(
+                "{} in {} ({})",
+                workspace.name,
+                workspace.directory,
+                modes.join(", ")
+            ),
+        ));
     }
 
     lines
@@ -757,6 +781,7 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
                         event.prevent_default();
                         submit_custom(());
                     },
+                    ImportSection { form, errors, running }
                     Card {
                         CardHeader {
                             title: "Target",
@@ -983,6 +1008,11 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
                                 }
                             }
                         }
+                    }
+                    WorkspaceSection {
+                        form,
+                        error: error_for(&current_errors, Field::Workspace),
+                        running,
                     }
                     div { class: "flex flex-col items-start gap-(--space-3)",
                         button {

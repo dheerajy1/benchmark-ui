@@ -266,6 +266,9 @@
   .mt-px {
     margin-top: 1px;
   }
+  .mb-\(--space-4\) {
+    margin-bottom: var(--space-4);
+  }
   .-ml-2 {
     margin-left: calc(var(--spacing) * -2);
   }
@@ -277,6 +280,9 @@
   }
   .block {
     display: block;
+  }
+  .contents {
+    display: contents;
   }
   .flex {
     display: flex;
@@ -418,6 +424,9 @@
   }
   .min-w-32 {
     min-width: calc(var(--spacing) * 32);
+  }
+  .min-w-full {
+    min-width: 100%;
   }
   .flex-1 {
     flex: 1;
@@ -1120,6 +1129,11 @@
   .md\:grid-cols-3 {
     @media (width >= 48rem) {
       grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  .md\:grid-cols-4 {
+    @media (width >= 48rem) {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
     }
   }
   .md\:grid-cols-6 {

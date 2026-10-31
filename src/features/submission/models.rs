@@ -53,6 +53,9 @@ pub struct BenchmarkRequest {
     pub startup: Option<StartupRequest>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workload: Option<WorkloadRequest>,
+    // Left out when empty, so a project without a subscriber sends what it always sent
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub workspaces: Vec<super::workspace::WorkspaceRequest>,
 }
 
 // Request body of POST /api/v1/live-runs for a saved target. The target supplies the path,

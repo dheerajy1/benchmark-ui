@@ -81,6 +81,27 @@ pub struct ArtifactComparison {
     pub excluded: ArtifactCategoryComparison,
 }
 
+// One workspace in one mode (native or docker), matched by name and mode across the two runs.
+// A status is null when that run did not have the workspace in that mode.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct WorkspaceComparison {
+    pub name: String,
+    pub mode: String,
+    #[serde(default)]
+    pub baseline_status: Option<String>,
+    #[serde(default)]
+    pub comparison_status: Option<String>,
+    pub image_bytes: MetricDiff,
+    pub build_duration_ms: MetricDiff,
+    pub startup_duration_ms: MetricDiff,
+    pub baseline_rss_bytes: MetricDiff,
+    pub peak_rss_bytes: MetricDiff,
+    pub delta_rss_bytes: MetricDiff,
+    pub cpu_baseline_percent: MetricDiff,
+    pub cpu_average_percent: MetricDiff,
+    pub cpu_peak_percent: MetricDiff,
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ComparisonMetrics {
     pub build_time: StepComparison,
@@ -89,6 +110,9 @@ pub struct ComparisonMetrics {
     pub cpu: CpuComparison,
     pub http_latency: HttpComparison,
     pub artifact_size: ArtifactComparison,
+    // Left out by the API when neither run had a workspace
+    #[serde(default)]
+    pub workspaces: Vec<WorkspaceComparison>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -170,6 +194,7 @@ pub mod fixtures {
                     build: category(),
                     excluded: category(),
                 },
+                workspaces: Vec::new(),
             },
         }
     }

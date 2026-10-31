@@ -24,17 +24,19 @@ pub enum Stage {
     Startup,
     Baseline,
     Workload,
+    Workspaces,
     Saving,
 }
 
 impl Stage {
-    pub const ALL: [Stage; 7] = [
+    pub const ALL: [Stage; 8] = [
         Stage::Discovery,
         Stage::ArtifactSize,
         Stage::Build,
         Stage::Startup,
         Stage::Baseline,
         Stage::Workload,
+        Stage::Workspaces,
         Stage::Saving,
     ];
 
@@ -46,6 +48,7 @@ impl Stage {
             Self::Startup => "startup",
             Self::Baseline => "baseline",
             Self::Workload => "workload",
+            Self::Workspaces => "workspaces",
             Self::Saving => "saving",
         }
     }
@@ -58,6 +61,7 @@ impl Stage {
             Self::Startup => "Start and wait until ready",
             Self::Baseline => "Baseline",
             Self::Workload => "Workload",
+            Self::Workspaces => "Measure workspace",
             Self::Saving => "Save result",
         }
     }
@@ -126,6 +130,65 @@ impl Progress {
     }
 }
 
+// One reading of a workspace mode while it is sampled, a value is None until measured
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorkspacePoint {
+    pub elapsed_ms: u64,
+    pub rss_bytes: Option<u64>,
+    pub peak_rss_bytes: Option<u64>,
+    pub cpu_interval: Option<f64>,
+    pub cpu_average: Option<f64>,
+    pub cpu_peak: Option<f64>,
+}
+
+// The workspace mode the run is on, or was on last: where it is and what it measured so far
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorkspaceLive {
+    pub workspace: String,
+    // "native" or "docker"
+    pub mode: String,
+    // "started", "sampling" or "finished"
+    pub phase: String,
+    // Only known once the mode finished
+    pub status: Option<String>,
+    pub points: Vec<WorkspacePoint>,
+}
+
+pub fn mode_title(mode: &str) -> &'static str {
+    match mode {
+        "docker" => "Docker",
+        _ => "Native",
+    }
+}
+
+fn phase_text(phase: &str) -> &'static str {
+    match phase {
+        "started" => "building and starting",
+        "sampling" => "sampling memory and CPU",
+        _ => "finished",
+    }
+}
+
+// The readings of one workspace mode for a chart, the most recent minute
+pub fn workspace_series(
+    live: &WorkspaceLive,
+    pick: fn(&WorkspacePoint) -> Option<f64>,
+) -> Vec<SeriesPoint> {
+    let start = live.points.len().saturating_sub(CHART_WINDOW);
+
+    live.points[start..]
+        .iter()
+        .map(|point| SeriesPoint {
+            axis_label: format!("{} s", point.elapsed_ms / 1000),
+            detail_label: format!(
+                "{:.1} s into the sampling",
+                point.elapsed_ms as f64 / 1000.0
+            ),
+            value: pick(point),
+        })
+        .collect()
+}
+
 // One live sample of the workload, a value is None until it has been measured
 #[derive(Debug, Clone, PartialEq)]
 pub struct SamplePoint {
@@ -163,6 +226,8 @@ pub struct Plan {
     pub workload: Option<String>,
     // The saved target's name, None for a custom run
     pub target_name: Option<String>,
+    // How many workspaces the run also measures, 0 when none
+    pub workspaces: u64,
 }
 
 // One line of the event panel
@@ -198,6 +263,9 @@ pub struct LiveState {
     last_seq: u64,
     dropped_through_seq: u64,
     samples: Vec<SamplePoint>,
+    workspace_live: Option<WorkspaceLive>,
+    // The modes that finished before the current one, with their readings
+    workspace_done: Vec<WorkspaceLive>,
     log: Vec<LogLine>,
     terminal: Option<Terminal>,
     recovered: bool,
@@ -221,6 +289,8 @@ impl LiveState {
             last_seq: 0,
             dropped_through_seq: 0,
             samples: Vec::new(),
+            workspace_live: None,
+            workspace_done: Vec::new(),
             log: Vec::new(),
             terminal: None,
             recovered: false,
@@ -261,6 +331,15 @@ impl LiveState {
 
     pub fn samples(&self) -> &[SamplePoint] {
         &self.samples
+    }
+
+    // Every workspace mode the run has reported, in the order they ran
+    pub fn workspace_modes(&self) -> Vec<WorkspaceLive> {
+        self.workspace_done
+            .iter()
+            .chain(self.workspace_live.iter())
+            .cloned()
+            .collect()
     }
 
     pub fn latest_sample(&self) -> Option<&SamplePoint> {
@@ -316,8 +395,26 @@ impl LiveState {
             Stage::ArtifactSize => self.artifact_detail.clone(),
             Stage::Baseline => self.baseline_detail.clone(),
             Stage::Workload => self.plan.as_ref().and_then(|plan| plan.workload.clone()),
+            Stage::Workspaces => {
+                matches!(self.stage(stage), StageState::Running { .. }).then(|| {
+                    match &self.workspace_live {
+                        Some(live) => format!(
+                            "{} · {} · {}",
+                            live.workspace,
+                            mode_title(&live.mode),
+                            phase_text(&live.phase)
+                        ),
+                        None => "Preparing the first workspace".to_string(),
+                    }
+                })
+            }
             _ => None,
         }
+    }
+
+    // Whether the request includes workspaces, known from the first event
+    pub fn workspaces_requested(&self) -> Option<bool> {
+        self.plan.as_ref().map(|plan| plan.workspaces > 0)
     }
 
     // Whether the request includes a workload, known from the first event
@@ -426,6 +523,72 @@ impl LiveState {
             "stage.skipped" => {
                 if let (Some(stage), Some(reason)) = (stage_of(data), text(data, "reason")) {
                     self.stages[stage as usize] = StageState::Skipped { reason };
+                }
+            }
+            "workspace.phase" => {
+                if let (Some(workspace), Some(mode), Some(phase)) = (
+                    text(data, "workspace"),
+                    text(data, "mode"),
+                    text(data, "phase"),
+                ) {
+                    // A new mode starts with an empty chart, a finished one keeps its readings
+                    let points = match self.workspace_live.take() {
+                        Some(live)
+                            if phase != "started"
+                                && live.mode == mode
+                                && live.workspace == workspace =>
+                        {
+                            live.points
+                        }
+                        Some(live) => {
+                            self.workspace_done.push(live);
+
+                            Vec::new()
+                        }
+                        None => Vec::new(),
+                    };
+
+                    self.workspace_live = Some(WorkspaceLive {
+                        workspace,
+                        mode,
+                        phase,
+                        status: text(data, "status"),
+                        points,
+                    });
+                }
+            }
+            "workspace.sample" => {
+                if let (Some(workspace), Some(mode)) = (text(data, "workspace"), text(data, "mode"))
+                {
+                    let memory = data.get("memory").filter(|value| !value.is_null());
+                    let cpu = data.get("cpu").filter(|value| !value.is_null());
+
+                    let point = WorkspacePoint {
+                        elapsed_ms: unsigned(data, "elapsed_ms").unwrap_or(0),
+                        rss_bytes: memory.and_then(|memory| unsigned(memory, "rss_bytes")),
+                        peak_rss_bytes: memory
+                            .and_then(|memory| unsigned(memory, "peak_rss_bytes")),
+                        cpu_interval: cpu.and_then(|cpu| float(cpu, "interval_percent")),
+                        cpu_average: cpu.and_then(|cpu| float(cpu, "average_percent")),
+                        cpu_peak: cpu.and_then(|cpu| float(cpu, "peak_percent")),
+                    };
+
+                    // Samples may arrive without their phase event when it was missed
+                    let live = self.workspace_live.get_or_insert_with(|| WorkspaceLive {
+                        workspace: workspace.clone(),
+                        mode: mode.clone(),
+                        phase: "sampling".to_string(),
+                        status: None,
+                        points: Vec::new(),
+                    });
+
+                    if live.mode == mode && live.workspace == workspace {
+                        live.points.push(point);
+
+                        if live.points.len() > MAX_SAMPLES {
+                            live.points.remove(0);
+                        }
+                    }
                 }
             }
             "measurement.available" => self.apply_measurement(data),
@@ -570,6 +733,10 @@ fn parse_plan(data: &Value) -> Option<Plan> {
         path,
         workload,
         target_name,
+        workspaces: data
+            .get("plan")
+            .and_then(|plan| unsigned(plan, "workspaces"))
+            .unwrap_or(0),
     })
 }
 
@@ -638,6 +805,22 @@ fn describe(kind: &str, data: &Value) -> Option<(String, Tone)> {
             Tone::Neutral,
         )),
         "baseline.measured" => Some(("Baseline measured".to_string(), Tone::Neutral)),
+        "workspace.phase" => {
+            let workspace = text(data, "workspace")?;
+            let mode = mode_title(&text(data, "mode")?);
+            let phase = text(data, "phase")?;
+
+            match (phase.as_str(), text(data, "status")) {
+                ("finished", Some(status)) => Some((
+                    format!("{workspace} · {mode} finished · {}", humanize_code(&status)),
+                    status_tone(&status),
+                )),
+                (phase, _) => Some((
+                    format!("{workspace} · {mode} {}", phase_text(phase)),
+                    Tone::Neutral,
+                )),
+            }
+        }
         "run.cancelling" => Some((
             match text(data, "stage").as_deref().and_then(Stage::from_key) {
                 Some(stage) => format!("Cancellation requested, stopping {}", stage.label()),
@@ -707,6 +890,86 @@ mod tests {
                 "capabilities": { "cancel": false }
             }),
         )
+    }
+
+    // The workspace mode the run is on now, the last one reported
+    fn current(state: &LiveState) -> WorkspaceLive {
+        state.workspace_modes().pop().unwrap()
+    }
+
+    fn workspace_sample(seq: u64, mode: &str, elapsed_ms: u64) -> StreamEvent {
+        event(
+            seq,
+            elapsed_ms,
+            "workspace.sample",
+            json!({
+                "workspace": "subscriber", "mode": mode, "elapsed_ms": elapsed_ms,
+                "memory": { "rss_bytes": 86_000_000, "peak_rss_bytes": 87_000_000 },
+                "cpu": { "interval_percent": 1.5, "average_percent": 0.4, "peak_percent": 9.8 }
+            }),
+        )
+    }
+
+    #[test]
+    fn workspace_readings_follow_the_current_mode_and_a_new_mode_starts_empty() {
+        let mut state = state();
+
+        state.apply_event(accepted(Value::Null), 0);
+        state.apply_event(
+            event(
+                2,
+                10,
+                "workspace.phase",
+                json!({"workspace": "subscriber", "mode": "native", "phase": "started", "status": null}),
+            ),
+            0,
+        );
+        state.apply_event(workspace_sample(3, "native", 500), 0);
+        state.apply_event(workspace_sample(4, "native", 1000), 0);
+
+        let live = current(&state);
+
+        assert_eq!(live.mode, "native");
+        assert_eq!(live.points.len(), 2);
+        assert_eq!(live.points[1].rss_bytes, Some(86_000_000));
+        assert_eq!(
+            workspace_series(&current(&state), |point| point.cpu_interval).len(),
+            2
+        );
+
+        state.apply_event(
+            event(
+                5,
+                1100,
+                "workspace.phase",
+                json!({"workspace": "subscriber", "mode": "native", "phase": "finished", "status": "success"}),
+            ),
+            0,
+        );
+
+        // A finished mode keeps its readings on screen
+        assert_eq!(current(&state).points.len(), 2);
+        assert_eq!(current(&state).status.as_deref(), Some("success"));
+
+        state.apply_event(
+            event(
+                6,
+                1200,
+                "workspace.phase",
+                json!({"workspace": "subscriber", "mode": "docker", "phase": "started", "status": null}),
+            ),
+            0,
+        );
+
+        assert_eq!(current(&state).mode, "docker");
+        assert!(current(&state).points.is_empty());
+        // The native readings are kept for the charts of the finished run
+        assert_eq!(state.workspace_modes().len(), 2);
+        assert_eq!(state.workspace_modes()[0].points.len(), 2);
+        assert_eq!(
+            state.log().last().unwrap().text,
+            "subscriber · Docker building and starting"
+        );
     }
 
     #[test]

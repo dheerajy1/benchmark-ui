@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use super::{
     models::{ComparisonData, MetricDiff, RunReference},
-    rows::metric_rows,
+    rows::{metric_rows, workspace_rows},
 };
 use crate::{
     app::Route,
@@ -115,7 +115,7 @@ fn StatusRow(
 
 // Table row with every cell already formatted
 struct TableRow {
-    group: &'static str,
+    group: String,
     label: &'static str,
     baseline: String,
     comparison: String,
@@ -155,14 +155,15 @@ pub fn ComparisonResults(data: ComparisonData) -> Element {
 
     let rows: Vec<TableRow> = metric_rows(&data)
         .into_iter()
+        .chain(workspace_rows(&data))
         .map(|row| TableRow {
-            group: row.group,
             label: row.label,
             baseline: row.baseline_text(),
             comparison: row.comparison_text(),
             difference: row.difference_text(),
             change: row.diff.percentage_change,
             lower_is_better: row.diff.lower_is_better(),
+            group: row.group,
         })
         .collect();
 

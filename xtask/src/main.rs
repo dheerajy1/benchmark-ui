@@ -11,7 +11,7 @@ pub struct EnvSchema {
 }
 
 // Where `cargo xtask build` writes the production bundle
-const BUNDLE_DIR: &str = "target/dx/benchmark-frontend/release/web/public";
+const BUNDLE_DIR: &str = "target/dx/benchmark-ui/release/web/public";
 
 // Variables the production build needs, API_BASE_URL is compiled into the WASM bundle
 #[derive(Clone, Debug, Deserialize, Validate)]

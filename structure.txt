@@ -1,14 +1,25 @@
-~/dev/vs-code/benchmark/benchmark-frontend
+~/dev/vs-code/benchmark/benchmark-ui
 
 ./
 ├── .env.development
 ├── .env.example
 ├── .env.production
+├── .github/
+│   ├── CODEOWNERS
+│   ├── labeler.yml
+│   ├── pull_request_template.md
+│   └── workflows/
+│       ├── pr-check-template.yml
+│       ├── pr-checks.yml
+│       ├── release.yml
+│       └── test.yml
 ├── .gitignore
+├── .releaserc.json
 ├── AGENTS.md
 ├── Cargo.lock
 ├── Cargo.toml
 ├── Dioxus.toml
+├── LICENSE
 ├── README.md
 ├── assets/
 │   ├── favicon.ico
@@ -49,12 +60,21 @@
 │   │   │   └── scale.rs
 │   │   ├── comparisons/
 │   │   │   ├── api.rs
+│   │   │   ├── config_notice.rs
 │   │   │   ├── mod.rs
 │   │   │   ├── models.rs
 │   │   │   ├── picker.rs
 │   │   │   ├── results.rs
 │   │   │   ├── rows.rs
 │   │   │   └── view.rs
+│   │   ├── configurations/
+│   │   │   ├── api.rs
+│   │   │   ├── card.rs
+│   │   │   ├── entry.rs
+│   │   │   ├── grouping.rs
+│   │   │   ├── lines.rs
+│   │   │   ├── mod.rs
+│   │   │   └── models.rs
 │   │   ├── connection/
 │   │   │   ├── client.rs
 │   │   │   ├── error.rs
@@ -95,13 +115,25 @@
 │   │   │   ├── mod.rs
 │   │   │   ├── models.rs
 │   │   │   ├── sections.rs
-│   │   │   └── view.rs
-│   │   └── submission/
+│   │   │   ├── view.rs
+│   │   │   └── workspaces.rs
+│   │   ├── submission/
+│   │   │   ├── api.rs
+│   │   │   ├── form.rs
+│   │   │   ├── history_panel.rs
+│   │   │   ├── import.rs
+│   │   │   ├── import_section.rs
+│   │   │   ├── mod.rs
+│   │   │   ├── models.rs
+│   │   │   ├── prefill.rs
+│   │   │   ├── target_run.rs
+│   │   │   ├── view.rs
+│   │   │   ├── workspace.rs
+│   │   │   └── workspace_section.rs
+│   │   └── targets/
 │   │       ├── api.rs
-│   │       ├── form.rs
 │   │       ├── mod.rs
-│   │       ├── models.rs
-│   │       └── view.rs
+│   │       └── models.rs
 │   ├── format.rs
 │   ├── main.rs
 │   ├── schemas/
@@ -119,4 +151,4 @@
     └── src/
         └── main.rs
 
-19 directories, 99 files
+23 directories, 127 files

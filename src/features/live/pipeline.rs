@@ -25,10 +25,14 @@ impl Phase {
     fn marker_class(self) -> &'static str {
         match self {
             Self::Pending => "border border-(color:--clr-border-strong)",
-            Self::Running => "animate-spin border-2 border-(color:--clr-accent) border-t-transparent",
+            Self::Running => {
+                "animate-spin border-2 border-(color:--clr-accent) border-t-transparent"
+            }
             Self::Done => "bg-(--clr-success-soft) text-(color:--clr-success)",
             Self::Failed => "bg-(--clr-danger-soft) text-(color:--clr-danger)",
-            Self::Cancelled => "border border-(color:--clr-border-strong) text-(color:--clr-text-muted)",
+            Self::Cancelled => {
+                "border border-(color:--clr-border-strong) text-(color:--clr-text-muted)"
+            }
             Self::Neutral | Self::Skipped | Self::NotRequested => {
                 "border border-dashed border-(color:--clr-border-strong) text-(color:--clr-text-faint)"
             }
@@ -106,13 +110,22 @@ fn row_for(state: &LiveState, stage: Stage, clock_ms: u64) -> Row {
 
     let (phase, detail, time, bar) = match state.stage(stage) {
         StageState::Pending => {
-            let not_requested = matches!(stage, Stage::Baseline | Stage::Workload)
+            let no_workload = matches!(stage, Stage::Baseline | Stage::Workload)
                 && state.workload_requested() == Some(false);
+            let no_workspace =
+                stage == Stage::Workspaces && state.workspaces_requested() == Some(false);
 
-            if not_requested {
+            if no_workload || no_workspace {
                 (
                     Phase::NotRequested,
-                    Some("No workload was requested".to_string()),
+                    Some(
+                        if no_workspace {
+                            "No workspace was requested"
+                        } else {
+                            "No workload was requested"
+                        }
+                        .to_string(),
+                    ),
                     None,
                     None,
                 )

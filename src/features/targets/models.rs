@@ -14,6 +14,22 @@ pub struct TargetView {
     pub path: String,
     pub startup: Option<TargetStartup>,
     pub workload: Option<TargetWorkload>,
+    // Workspaces the target also measures, absent for a target without one
+    #[serde(default)]
+    pub workspaces: Vec<TargetWorkspace>,
+}
+
+// What the page shows of a workspace. Environment values never arrive, only names.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct TargetWorkspace {
+    pub name: String,
+    pub directory: String,
+    #[serde(default)]
+    pub env_variable_names: Vec<String>,
+    #[serde(default)]
+    pub native: Option<serde_json::Value>,
+    #[serde(default)]
+    pub docker: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
