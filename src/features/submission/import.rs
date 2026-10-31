@@ -67,9 +67,10 @@ pub fn form_from_json(input: &str) -> Result<FormState, String> {
         ));
     }
 
-    let mut form = FormState::default();
-
-    form.path = text(root, "path").ok_or("\"path\" is required and must be text.")?;
+    let mut form = FormState {
+        path: text(root, "path").ok_or("\"path\" is required and must be text.")?,
+        ..FormState::default()
+    };
 
     if let Some(startup) = child(root, "startup")? {
         form.startup_enabled = true;
