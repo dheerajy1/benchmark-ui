@@ -2,6 +2,7 @@
 
 mod badge;
 mod button;
+mod capture;
 mod card;
 mod clipboard;
 mod collapse;
@@ -28,6 +29,7 @@ mod tooltip;
 
 pub use badge::Badge;
 pub use button::{button_class, ButtonVariant};
+pub use capture::{card_id, file_name, use_image_saver};
 pub use card::{Card, CardHeader};
 pub use clipboard::copy_text;
 pub use collapse::Collapse;

@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::components::{Icon, IconKind, Popover};
+use crate::components::{card_id, file_name, use_image_saver, Icon, IconKind, Popover};
 
 // Whether the cards of the page show their chart or their table
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,6 +94,10 @@ pub fn DataCard(
     let page = use_context::<Signal<ViewMode>>();
     let mut own = use_signal(|| None::<(ViewMode, ViewMode)>);
     let mut open = use_signal(|| false);
+    let save_image = use_image_saver();
+    let element_id = card_id(&title);
+    let element_id_for_save = element_id.clone();
+    let image_name = file_name(&title);
 
     let both = chart.is_some() && table.is_some();
     let mode = if both {
@@ -113,7 +117,9 @@ pub fn DataCard(
     };
 
     rsx! {
-        section { class: "fade-up min-w-0 rounded-(--round-lg) border border-(color:--clr-border) bg-(--clr-surface) shadow-(--shadow-card)",
+        section {
+            id: "{element_id}",
+            class: "fade-up min-w-0 rounded-(--round-lg) border border-(color:--clr-border) bg-(--clr-surface) shadow-(--shadow-card)",
             header { class: "flex items-start justify-between gap-(--space-3) px-(--space-4) pt-(--space-3)",
                 div { class: "min-w-0",
                     h3 { class: "text-(length:--fs-base) font-(weight:--fw-semibold) text-(color:--clr-text)",
@@ -123,23 +129,23 @@ pub fn DataCard(
                         p { class: "text-(length:--fs-xs) text-(color:--clr-text-muted)", "{subtitle}" }
                     }
                 }
-                if both {
-                    div { class: "relative shrink-0",
-                        button {
-                            r#type: "button",
-                            class: "inline-flex size-8 cursor-pointer items-center justify-center rounded-(--round-md) text-(color:--clr-text-muted) transition-colors hover:bg-(--clr-surface-hover) hover:text-(color:--clr-text)",
-                            "aria-label": "Options of {title}",
-                            "aria-haspopup": "menu",
-                            "aria-expanded": "{open()}",
-                            onclick: move |_| open.set(!open()),
-                            Icon { kind: IconKind::Dots, class: "size-(--icon-md)" }
-                        }
-                        if open() {
-                            Popover {
-                                rise: true,
-                                width: "w-44",
-                                on_close: move |_| open.set(false),
-                                div { role: "menu", class: "flex flex-col p-(--space-1)",
+                div { class: "relative shrink-0", "data-capture-skip": "",
+                    button {
+                        r#type: "button",
+                        class: "inline-flex size-8 cursor-pointer items-center justify-center rounded-(--round-md) text-(color:--clr-text-muted) transition-colors hover:bg-(--clr-surface-hover) hover:text-(color:--clr-text)",
+                        "aria-label": "Options of {title}",
+                        "aria-haspopup": "menu",
+                        "aria-expanded": "{open()}",
+                        onclick: move |_| open.set(!open()),
+                        Icon { kind: IconKind::Dots, class: "size-(--icon-md)" }
+                    }
+                    if open() {
+                        Popover {
+                            rise: true,
+                            width: "w-44",
+                            on_close: move |_| open.set(false),
+                            div { role: "menu", class: "flex flex-col p-(--space-1)",
+                                if both {
                                     button {
                                         r#type: "button",
                                         role: "menuitem",
@@ -150,6 +156,16 @@ pub fn DataCard(
                                         },
                                         "{flip_label}"
                                     }
+                                }
+                                button {
+                                    r#type: "button",
+                                    role: "menuitem",
+                                    class: "cursor-pointer rounded-(--round-md) px-(--space-3) py-(--space-2) text-left text-(length:--fs-sm) text-(color:--clr-text) transition-colors hover:bg-(--clr-surface-hover)",
+                                    onclick: move |_| {
+                                        open.set(false);
+                                        save_image.call((element_id_for_save.clone(), image_name.clone()));
+                                    },
+                                    "Save as image"
                                 }
                             }
                         }

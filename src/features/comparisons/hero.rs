@@ -2,13 +2,17 @@ use dioxus::prelude::*;
 
 use super::models::{ComparisonData, MetricDiff};
 use crate::{
-    components::{verdict, DeltaBadge, Verdict},
+    components::{button_class, use_image_saver, verdict, ButtonVariant, DeltaBadge, Verdict},
     features::{charts::ChartTone, history::runtime_label},
     format::{format_optional, path_tail, ValueFormat},
 };
 
 // Under this factor a difference is described in percent, "4% faster" reads better than "1.0x faster"
 const FACTOR_FROM: f64 = 1.1;
+
+// DOM id of the hero card and the name of its picture
+const HERO_ID: &str = "card-summary-hero";
+const HERO_FILE: &str = "benchmark-comparison.png";
 
 // The big sentence of the hero, for example `3.4x faster`
 #[derive(Debug, Clone, PartialEq)]
@@ -222,6 +226,8 @@ pub fn Hero(data: ComparisonData) -> Element {
         Verdict::Regressed => "text-(color:--clr-danger-text)",
         Verdict::Unchanged => "text-(color:--clr-text)",
     };
+    let save_image = use_image_saver();
+    let secondary = button_class(ButtonVariant::Secondary);
     let baseline_color = ChartTone::Slate.color_var();
     let comparison_color = ChartTone::Blue.color_var();
     let baseline_swatch = ChartTone::Slate.swatch_class();
@@ -251,10 +257,22 @@ pub fn Hero(data: ComparisonData) -> Element {
 
     rsx! {
         section {
+            id: HERO_ID,
             class: "fade-up flex flex-col gap-(--space-5) rounded-(--round-lg) border border-(color:--clr-border) bg-(--clr-surface) p-(--space-5) shadow-(--shadow-card)",
             "aria-label": "Summary of the comparison",
             div { class: "flex flex-col gap-(--space-2)",
-                p { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)", "{context}" }
+                div { class: "flex items-start justify-between gap-(--space-3)",
+                    p { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)", "{context}" }
+                    button {
+                        r#type: "button",
+                        class: "shrink-0 {secondary}",
+                        "data-capture-skip": "",
+                        onclick: move |_| {
+                            save_image.call((HERO_ID.to_string(), HERO_FILE.to_string()));
+                        },
+                        "Save as image"
+                    }
+                }
                 h2 { class: "text-(length:--fs-hero) leading-tight font-(weight:--fw-semibold) tabular-nums {headline_class}",
                     "{top.text}"
                 }

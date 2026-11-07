@@ -279,6 +279,8 @@ dependencies = [
  "serde",
  "serde_json",
  "validator",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
 ]
 
