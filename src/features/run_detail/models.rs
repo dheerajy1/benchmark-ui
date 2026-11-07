@@ -98,10 +98,6 @@ pub struct HttpLatency {
     pub duration_ms: u64,
     pub requests_per_second: f64,
     #[serde(default)]
-    pub min_ms: Option<f64>,
-    #[serde(default)]
-    pub mean_ms: Option<f64>,
-    #[serde(default)]
     pub p50_ms: Option<f64>,
     #[serde(default)]
     pub p95_ms: Option<f64>,
@@ -193,6 +189,22 @@ pub struct BenchmarkResult {
     #[serde(default)]
     pub discovery: Discovery,
     pub metrics: Metrics,
+    // `done`, `failed` or `cancelled`, a run of a finished benchmark is `done`
+    #[serde(default = "done")]
+    pub status: String,
+    // Stage a failed or cancelled run stopped in
+    #[serde(default)]
+    pub stopped_stage: Option<String>,
+    // Why a failed run failed
+    #[serde(default)]
+    pub failure_message: Option<String>,
+    // Saved target name, otherwise the last folder of the target path
+    #[serde(default)]
+    pub display_name: String,
+}
+
+fn done() -> String {
+    "done".to_string()
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 use super::state::{LiveState, Stage, StageState};
 use crate::{
     components::{Card, CardHeader},
+    features::submission::{average_for, last_for, StageAverages},
     format::{format_duration_ms, humanize_code},
 };
 
@@ -79,6 +80,13 @@ struct Bar {
     text: String,
 }
 
+// How a finished step compares with the same step of the last run
+#[derive(Debug, Clone, PartialEq)]
+struct Delta {
+    text: String,
+    class: &'static str,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct Row {
     label: &'static str,
@@ -87,6 +95,34 @@ struct Row {
     // Duration of a finished step, elapsed time of the running one
     time: Option<String>,
     bar: Option<Bar>,
+    // The duration of a step that finished well
+    finished_ms: Option<u64>,
+    change: Option<Delta>,
+}
+
+// `+3.20 s vs last`, `-120 ms vs last`, or `same as last` when the difference is small. A
+// longer time is worse, so it is red and a shorter one is green.
+fn change_vs_last(duration_ms: u64, last_ms: u64) -> Delta {
+    let difference = duration_ms.abs_diff(last_ms);
+
+    if difference < (last_ms / 20).max(50) {
+        return Delta {
+            text: "same as last".to_string(),
+            class: "text-(color:--clr-text-faint)",
+        };
+    }
+
+    if duration_ms > last_ms {
+        Delta {
+            text: format!("+{} vs last", format_duration_ms(difference as f64)),
+            class: "text-(color:--clr-danger-text)",
+        }
+    } else {
+        Delta {
+            text: format!("-{} vs last", format_duration_ms(difference as f64)),
+            class: "text-(color:--clr-success-text)",
+        }
+    }
 }
 
 fn is_good(status: &str) -> bool {
@@ -191,12 +227,19 @@ fn row_for(state: &LiveState, stage: Stage, clock_ms: u64) -> Row {
         phase
     };
 
+    let finished_ms = match state.stage(stage) {
+        StageState::Done { duration_ms, .. } if phase == Phase::Done => *duration_ms,
+        _ => None,
+    };
+
     Row {
         label: stage.label(),
         phase,
         detail,
         time,
         bar,
+        finished_ms,
+        change: None,
     }
 }
 
@@ -220,9 +263,14 @@ fn StageRow(row: Row) -> Element {
                         "{row.label}"
                         span { class: "sr-only", " · {word}" }
                     }
-                    if let Some(time) = row.time.clone() {
-                        span { class: "shrink-0 text-(length:--fs-xs) tabular-nums text-(color:--clr-text-muted)",
-                            "{time}"
+                    div { class: "flex shrink-0 flex-col items-end",
+                        if let Some(time) = row.time.clone() {
+                            span { class: "text-(length:--fs-xs) tabular-nums text-(color:--clr-text-muted)",
+                                "{time}"
+                            }
+                        }
+                        if let Some(change) = row.change.clone() {
+                            span { class: "text-(length:--fs-2xs) tabular-nums {change.class}", "{change.text}" }
                         }
                     }
                 }
@@ -257,14 +305,27 @@ fn StageRow(row: Row) -> Element {
 
 // The steps of a run as a pipeline, every row shows only what the run has reported
 #[component]
-pub fn Pipeline(state: Signal<LiveState>, clock: Signal<u64>) -> Element {
+pub fn Pipeline(
+    state: Signal<LiveState>,
+    clock: Signal<u64>,
+    averages: Option<StageAverages>,
+) -> Element {
     let clock_ms = clock();
     let rows: Vec<Row> = {
         let state = state.read();
 
         Stage::ALL
             .iter()
-            .map(|stage| row_for(&state, *stage, clock_ms))
+            .map(|stage| {
+                let mut row = row_for(&state, *stage, clock_ms);
+
+                row.change = row
+                    .finished_ms
+                    .zip(averages.as_ref().and_then(|known| last_for(*stage, known)))
+                    .map(|(duration, last)| change_vs_last(duration, last));
+
+                row
+            })
             .collect()
     };
 
@@ -279,6 +340,51 @@ pub fn Pipeline(state: Signal<LiveState>, clock: Signal<u64>) -> Element {
                     StageRow { key: "{index}", row }
                 }
             }
+        }
+    }
+}
+
+// The first step that has not started and will run, `None` when the run is over or stopping
+fn next_stage(state: &LiveState) -> Option<Stage> {
+    if state.is_terminal() || state.is_cancelling() {
+        return None;
+    }
+
+    let running = Stage::ALL
+        .iter()
+        .position(|stage| matches!(state.stage(*stage), StageState::Running { .. }));
+
+    Stage::ALL
+        .iter()
+        .skip(running.map_or(0, |index| index + 1))
+        .copied()
+        .find(|stage| row_for(state, *stage, 0).phase == Phase::Pending)
+}
+
+// What comes after the step that is running, and about how long it usually takes
+#[component]
+pub fn UpNext(state: Signal<LiveState>, averages: Option<StageAverages>) -> Element {
+    let Some(stage) = next_stage(&state.read()) else {
+        return rsx! {};
+    };
+
+    let usual = averages
+        .as_ref()
+        .and_then(|known| average_for(stage, known))
+        .map_or_else(
+            || "Usual time not known yet".to_string(),
+            |ms| format!("Usually about {}", format_duration_ms(ms as f64)),
+        );
+
+    rsx! {
+        Card { class: "flex flex-col gap-(--space-1) px-(--space-4) py-(--space-3)",
+            span { class: "text-(length:--fs-2xs) font-(weight:--fw-medium) uppercase tracking-wider text-(color:--clr-text-faint)",
+                "Up next"
+            }
+            span { class: "text-(length:--fs-sm) font-(weight:--fw-medium) text-(color:--clr-text)",
+                "{stage.label()}"
+            }
+            span { class: "text-(length:--fs-xs) text-(color:--clr-text-muted)", "{usual}" }
         }
     }
 }
@@ -530,5 +636,22 @@ mod tests {
 
         assert_eq!(row_for(&state, Stage::Startup, 0).phase, Phase::Cancelled);
         assert_eq!(row_for(&state, Stage::Build, 0).phase, Phase::Pending);
+    }
+
+    #[test]
+    fn a_step_is_compared_with_the_last_run() {
+        assert_eq!(change_vs_last(5_000, 5_100).text, "same as last");
+        assert_eq!(change_vs_last(8_200, 5_000).text, "+3.20 s vs last");
+        assert_eq!(change_vs_last(4_880, 5_000).text, "same as last");
+        assert_eq!(change_vs_last(3_800, 5_000).text, "-1.20 s vs last");
+        assert!(change_vs_last(8_200, 5_000).class.contains("danger"));
+        assert!(change_vs_last(3_800, 5_000).class.contains("success"));
+    }
+
+    #[test]
+    fn nothing_is_next_before_the_run_is_known_to_have_ended() {
+        let state = LiveState::new("r".to_string());
+
+        assert_eq!(next_stage(&state), Some(Stage::Discovery));
     }
 }

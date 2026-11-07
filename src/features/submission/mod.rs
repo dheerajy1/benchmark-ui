@@ -1,15 +1,22 @@
 // Benchmark submission: start from a saved target or a custom form, and reuse previous settings
 
 mod api;
+mod checks;
+mod custom_form;
+mod estimate;
+mod fields;
 mod form;
-mod history_panel;
 mod import;
-mod import_section;
 mod models;
+mod paste_modal;
 mod prefill;
+mod previous_runs;
+mod run_panel;
+mod skeleton;
+mod target_card;
 mod target_run;
 mod view;
 mod workspace;
-mod workspace_section;
 
+pub use estimate::{average_for, fetch_stage_averages, last_for, live_total_ms, StageAverages};
 pub use view::{Submission, SubmissionFrom};

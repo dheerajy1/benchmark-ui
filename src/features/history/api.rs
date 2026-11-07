@@ -20,6 +20,10 @@ const MAX_PAGE_SIZE: u32 = 100;
 pub struct HistoryFilters {
     pub runtime: String,
     pub target_path: String,
+    // done, failed or cancelled, empty for every status
+    pub status: String,
+    // Matches the target path or the end of a run id, empty for no search
+    pub search: String,
 }
 
 // Query string of GET /benchmarks, empty filters are left out
@@ -37,6 +41,15 @@ fn query_pairs(
     let target_path = filters.target_path.trim();
     if !target_path.is_empty() {
         query.push(("target_path", target_path.to_string()));
+    }
+
+    if !filters.status.is_empty() {
+        query.push(("status", filters.status.clone()));
+    }
+
+    let search = filters.search.trim();
+    if !search.is_empty() {
+        query.push(("search", search.to_string()));
     }
 
     if let Some(cursor) = before {
@@ -76,6 +89,8 @@ mod tests {
         let filters = HistoryFilters {
             runtime: "bun".to_string(),
             target_path: "  /home/me/api  ".to_string(),
+            status: "failed".to_string(),
+            search: " 1a2b ".to_string(),
         };
 
         let query = query_pairs(&filters, Some("MTc5"), 50);
@@ -86,6 +101,8 @@ mod tests {
                 ("limit", "50".to_string()),
                 ("runtime", "bun".to_string()),
                 ("target_path", "/home/me/api".to_string()),
+                ("status", "failed".to_string()),
+                ("search", "1a2b".to_string()),
                 ("before", "MTc5".to_string()),
             ]
         );

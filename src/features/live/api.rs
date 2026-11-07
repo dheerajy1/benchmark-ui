@@ -46,6 +46,7 @@ fn looks_like_run_id(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::features::connection::RequestInfo;
 
     fn conflict(detail: Option<&str>) -> ApiError {
         ApiError::Http {
@@ -53,6 +54,7 @@ mod tests {
             code: Some("CONFLICT".to_string()),
             message: "Another benchmark is already running.".to_string(),
             detail: detail.map(str::to_string),
+            request: RequestInfo::default(),
         }
     }
 
@@ -79,6 +81,7 @@ mod tests {
             code: None,
             message: "x".to_string(),
             detail: Some("0192f3a0-7b1e-7c2d-9a4b-5e6f708192a3".to_string()),
+            request: RequestInfo::default(),
         };
 
         assert_eq!(active_run_id(&error), None);

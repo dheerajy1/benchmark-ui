@@ -208,9 +208,11 @@ pub fn date_part(value: &str) -> String {
     value.get(..10).unwrap_or(value).to_string()
 }
 
-// First segment of a UUID, enough to tell runs apart in a list
+// Last 8 characters of a run id, the first segment of a UUIDv7 is a timestamp and repeats
 pub fn short_id(value: &str) -> String {
-    value.chars().take(8).collect()
+    let count = value.chars().count();
+
+    value.chars().skip(count.saturating_sub(8)).collect()
 }
 
 // Last path component, the full path stays available as a tooltip
@@ -417,7 +419,8 @@ mod tests {
     fn extracts_path_tail_and_short_id() {
         assert_eq!(path_tail("/home/me/projects/my-api"), "my-api");
         assert_eq!(path_tail("/home/me/projects/my-api/"), "my-api");
-        assert_eq!(short_id("0192f3a0-0000-7000-8000-000000000000"), "0192f3a0");
+        assert_eq!(short_id("0192f3a0-0000-7000-8000-00000000abcd"), "0000abcd");
+        assert_eq!(short_id("abc"), "abc");
     }
 
     #[test]

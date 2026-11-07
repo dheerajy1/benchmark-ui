@@ -1,29 +1,39 @@
 use dioxus::prelude::*;
+use gloo_timers::future::TimeoutFuture;
 
 use super::{
     api::{submit_live, submit_target_live},
-    form::{error_for, validate, Field, FieldError, FormState, WorkloadMode},
-    history_panel::{format_when, now_epoch_ms, row_for, HistoryPanel, HistoryRow},
-    import_section::ImportSection,
+    checks::{all_ok, custom_checks, custom_lines, target_checks, target_lines},
+    custom_form::CustomForm,
+    estimate::{custom_plan, fetch_stage_averages, panel_parts, target_plan, StageAverages},
+    form::{validate, FieldError, FormState},
+    paste_modal::PasteModal,
     prefill::{prefill_for, Prefill},
+    previous_runs::{cards, format_when, now_epoch_ms, PreviousRuns},
+    run_panel::RunPanel,
+    skeleton::TargetSkeleton,
+    target_card::SavedTargetForm,
     target_run::{validate_target, TargetForm},
-    workspace_section::WorkspaceSection,
 };
 use crate::{
     app::Route,
     components::{
-        button_class, ButtonVariant, Card, CardHeader, EmptyState, FormField, Icon, IconKind,
-        LoadingPanel, PageHeader, INPUT_CLASS, TEXTAREA_CLASS,
+        button_class, ButtonVariant, ErrorKind, ErrorState, Icon, IconKind, PageHeader,
+        SegmentSwitch,
     },
     features::{
         configurations::{
             fetch_configurations, fetch_entry, group, ConfigurationEntry, ConfigurationGroup,
         },
         connection::{ApiError, ApiErrorPanel},
+        history::fetch_recent_runs,
         live::{active_run_id, save_token, SessionTokenStore},
         targets::{fetch_targets, TargetView, TargetsView},
     },
 };
+
+// Id of the form that the Run benchmark button in the side panel submits
+const FORM_ID: &str = "new-benchmark-form";
 
 #[derive(Debug, Clone, PartialEq)]
 enum Phase {
@@ -69,89 +79,11 @@ fn default_mode(view: &TargetsView) -> StartMode {
     }
 }
 
-// Read-only facts about a target, as label and value. Header names only, never values.
-fn target_lines(target: &TargetView) -> Vec<(&'static str, String)> {
-    let mut lines = vec![("Path", target.path.clone())];
-
-    if let Some(startup) = &target.startup {
-        let command = format!(
-            "{} {}",
-            startup.command.program,
-            startup.command.args.join(" ")
-        );
-
-        lines.push(("Start command", command.trim().to_string()));
-        lines.push((
-            "Readiness",
-            format!(
-                "{}:{} {} ({} → {})",
-                startup.readiness.host,
-                startup.readiness.port,
-                startup.readiness.path,
-                startup.readiness.method,
-                startup.readiness.expected_status
-            ),
-        ));
-
-        let readiness_headers = match &startup.readiness.header_names {
-            Some(names) => names_text(names),
-            None => "Server health credentials".to_string(),
-        };
-
-        lines.push(("Readiness headers", readiness_headers));
-    }
-
-    if let Some(workload) = &target.workload {
-        lines.push(("Workload", format!("{} {}", workload.method, workload.path)));
-
-        let amount = if workload.mode == "duration" {
-            format!("{} s", workload.duration_seconds.unwrap_or_default())
-        } else {
-            format!("{} requests", workload.requests.unwrap_or_default())
-        };
-
-        lines.push(("Default amount", amount));
-        lines.push(("Concurrency", workload.concurrency.to_string()));
-        lines.push(("Workload headers", names_text(&workload.header_names)));
-    }
-
-    for workspace in &target.workspaces {
-        let mut modes = Vec::new();
-
-        if workspace.native.is_some() {
-            modes.push("native");
-        }
-
-        if workspace.docker.is_some() {
-            modes.push("Docker");
-        }
-
-        lines.push((
-            "Workspace",
-            format!(
-                "{} in {} ({})",
-                workspace.name,
-                workspace.directory,
-                modes.join(", ")
-            ),
-        ));
-    }
-
-    lines
-}
-
-fn names_text(names: &[String]) -> String {
-    if names.is_empty() {
-        "None".to_string()
-    } else {
-        names.join(", ")
-    }
-}
-
 // The signals a filled form writes to, copied into the effect and into the lookup of a run
 #[derive(Clone, Copy)]
 struct FillSignals {
     form: Signal<FormState>,
+    reference: Signal<Option<FormState>>,
     errors: Signal<Vec<FieldError>>,
     target_form: Signal<Option<TargetForm>>,
     target_error: Signal<Option<String>>,
@@ -188,6 +120,7 @@ fn fill_from_entry(mut signals: FillSignals, entry: ConfigurationEntry, view: &T
             notice,
             header_names,
         } => {
+            signals.reference.set(Some((*filled).clone()));
             signals.form.set(*filled);
             signals.errors.set(Vec::new());
             signals.start_mode.set(StartMode::Custom);
@@ -211,15 +144,16 @@ fn fill_from_entry(mut signals: FillSignals, entry: ConfigurationEntry, view: &T
 #[component]
 pub fn SubmissionFrom(run_id: String) -> Element {
     rsx! {
-        Submission { from_run: Some(run_id) }
+        Submission { from_run: Some(run_id), target: String::new() }
     }
 }
 
 // Form that starts a live run, from a saved target or from a custom form, and then opens its
 // live view
 #[component]
-pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
+pub fn Submission(#[props(default)] from_run: Option<String>, target: String) -> Element {
     let mut form = use_signal(FormState::default);
+    let mut reference = use_signal(|| None::<FormState>);
     let mut errors = use_signal(Vec::<FieldError>::new);
     let mut phase = use_signal(|| Phase::Editing);
     let mut targets = use_signal(|| Loaded::<TargetsView>::Loading);
@@ -229,12 +163,41 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
     let mut target_form = use_signal(|| None::<TargetForm>);
     let mut target_error = use_signal(|| None::<String>);
     let mut banner = use_signal(|| None::<Banner>);
-    let mut history_open = use_signal(|| false);
+    let mut paste_open = use_signal(|| false);
+    let mut flash = use_signal(|| false);
     let mut reload = use_signal(|| 0u32);
     let nav = use_navigator();
 
-    // Loads the saved targets and the run history when the page opens, and again after a retry
+    // The runtime of each target path, taken from the newest runs, for the tags of the picker
+    let recent = use_resource(|| async { fetch_recent_runs().await });
+
+    // The project path of the run being set up, for the time estimate
+    let wanted_path = use_memo(move || match (start_mode(), targets()) {
+        (StartMode::Target, Loaded::Ready(view)) => target_form()
+            .and_then(|filled| target_by_id(&view, &filled.target_id).map(|t| t.path.clone()))
+            .unwrap_or_default(),
+        _ => form().path.trim().to_string(),
+    });
+
+    // Usual stage times of that project. The request waits until typing pauses.
+    let estimate = use_resource(move || {
+        let path = wanted_path();
+
+        async move {
+            if path.is_empty() {
+                return Ok(StageAverages::default());
+            }
+
+            TimeoutFuture::new(400).await;
+            fetch_stage_averages(&path).await
+        }
+    });
+
+    // Loads the saved targets and the run history when the page opens, and again after a retry.
+    // `target` (from /new?target=id) picks the saved target to start with.
+    let wanted_target = target.clone();
     use_effect(move || {
+        let wanted_target = wanted_target.clone();
         let _ = reload();
 
         spawn(async move {
@@ -246,7 +209,9 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
                         start_mode.set(StartMode::Target);
 
                         if target_form.peek().is_none() {
-                            target_form.set(view.targets.first().map(TargetForm::for_target));
+                            let first =
+                                target_by_id(&view, &wanted_target).or(view.targets.first());
+                            target_form.set(first.map(TargetForm::for_target));
                         }
                     }
 
@@ -292,6 +257,7 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
 
         let signals = FillSignals {
             form,
+            reference,
             errors,
             target_form,
             target_error,
@@ -333,6 +299,32 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
     let primary = button_class(ButtonVariant::Primary);
     let secondary = button_class(ButtonVariant::Secondary);
     let running = matches!(phase(), Phase::Running);
+
+    // Checks run live. Field errors show once something has been typed, so an empty form is
+    // not covered in red.
+    let live = validate(&state);
+    let live_errors = live.as_ref().err().cloned().unwrap_or_default();
+    let touched = state != FormState::default();
+    let current_errors = if touched {
+        live_errors.clone()
+    } else {
+        current_errors
+    };
+    let custom_check_list = custom_checks(&state, &live_errors);
+    let custom_ready = live.is_ok() && all_ok(&custom_check_list);
+    let target_check_list = target_checks(current_target.as_ref());
+    let target_ready = all_ok(&target_check_list);
+    let runtimes: Vec<(String, String)> = match recent() {
+        Some(Ok(page)) => page
+            .items
+            .iter()
+            .filter_map(|run| {
+                run.runtime_code()
+                    .map(|code| (run.target.path.clone(), code.to_string()))
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
 
     // Custom runs are offered only when the server allows them
     let custom_allowed = matches!(&targets_state, Loaded::Ready(view) if view.custom_runs_allowed);
@@ -441,6 +433,7 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
                 notice,
                 header_names,
             } => {
+                reference.set(Some((*filled).clone()));
                 form.set(*filled);
                 errors.set(Vec::new());
                 start_mode.set(StartMode::Custom);
@@ -453,39 +446,12 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
             Prefill::Unavailable { .. } => return,
         }
 
-        history_open.set(false);
-    };
-
-    // The history panel, its loading state or its error
-    let panel: Element = if history_open() {
-        match (&history_state, &targets_state) {
-            (Loaded::Ready(groups), Loaded::Ready(view)) => {
-                let rows: Vec<HistoryRow> = groups
-                    .iter()
-                    .enumerate()
-                    .map(|(index, group)| row_for(index, group, view, now_epoch_ms()))
-                    .collect();
-
-                rsx! {
-                    HistoryPanel {
-                        rows,
-                        on_use: move |index: usize| apply_history(index),
-                        on_close: move |_| history_open.set(false),
-                    }
-                }
-            }
-            (Loaded::Failed(error), _) | (_, Loaded::Failed(error)) => rsx! {
-                ApiErrorPanel {
-                    error: error.clone(),
-                    on_retry: move |_| reload.with_mut(|count| *count += 1),
-                }
-            },
-            _ => rsx! {
-                LoadingPanel { label: "Loading previous runs" }
-            },
-        }
-    } else {
-        rsx! {}
+        // The fields that took a new value flash once
+        flash.set(true);
+        spawn(async move {
+            TimeoutFuture::new(1_300).await;
+            flash.set(false);
+        });
     };
 
     // What the form was filled from, with the header names only
@@ -512,6 +478,7 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
                             class: "{secondary}",
                             onclick: move |_| {
                                 form.set(FormState::default());
+                                reference.set(None);
                                 errors.set(Vec::new());
                                 target_error.set(None);
                                 banner.set(None);
@@ -532,39 +499,35 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
     // The switch between saved targets and custom runs
     let switch_bar: Element = match &targets_state {
         Loaded::Ready(view) if !view.targets.is_empty() || custom_allowed => {
-            let target_class = if effective_mode == StartMode::Target {
-                primary.clone()
-            } else {
-                secondary.clone()
-            };
-            let custom_class = if effective_mode == StartMode::Custom {
-                primary.clone()
-            } else {
-                secondary.clone()
-            };
             let no_targets = view.targets.is_empty();
+            let selected = usize::from(effective_mode == StartMode::Custom);
 
             rsx! {
-                div {
-                    class: "mb-(--space-4) flex flex-wrap items-center gap-(--space-2)",
-                    role: "group",
-                    "aria-label": "Start from",
-                    span { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)", "Start from" }
-                    button {
-                        r#type: "button",
-                        class: "{target_class}",
-                        "aria-pressed": if effective_mode == StartMode::Target { "true" } else { "false" },
-                        disabled: running || no_targets,
-                        onclick: move |_| start_mode.set(StartMode::Target),
-                        "Saved target"
+                div { class: "flex flex-wrap items-center gap-(--space-3)",
+                    SegmentSwitch {
+                        label: "Start from",
+                        options: vec![
+                            ("Saved target", running || no_targets),
+                            ("Custom", running || !custom_allowed),
+                        ],
+                        selected,
+                        width_rem: 8.0,
+                        locked: if custom_allowed { None } else { Some(1) },
+                        lock_hint: "Custom runs are turned off on this server",
+                        on_pick: move |index: usize| {
+                            start_mode
+                                .set(if index == 0 { StartMode::Target } else { StartMode::Custom });
+                        },
                     }
-                    button {
-                        r#type: "button",
-                        class: "{custom_class}",
-                        "aria-pressed": if effective_mode == StartMode::Custom { "true" } else { "false" },
-                        disabled: running || !custom_allowed,
-                        onclick: move |_| start_mode.set(StartMode::Custom),
-                        "Custom"
+                    if effective_mode == StartMode::Custom && custom_allowed {
+                        button {
+                            r#type: "button",
+                            class: "{secondary}",
+                            disabled: running,
+                            onclick: move |_| paste_open.set(true),
+                            Icon { kind: IconKind::Copy, class: "size-(--icon-sm)" }
+                            "Paste JSON"
+                        }
                     }
                 }
             }
@@ -576,25 +539,42 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
         Phase::Failed(error) => {
             // A busy API names the run that holds it, so it can be watched instead
             let active = active_run_id(&error);
+            let refused_title = if matches!(error, ApiError::Network { .. }) {
+                String::new()
+            } else {
+                "Couldn't start the run.".to_string()
+            };
 
             rsx! {
-                ApiErrorPanel { error, on_retry: move |_| phase.set(Phase::Editing) }
                 if let Some(run_id) = active {
-                    div { class: "mt-(--space-3)",
-                        Link {
-                            to: Route::LiveRun {
-                                run_id,
-                            },
-                            class: "{primary}",
-                            "Watch the active run"
-                        }
+                    ErrorState {
+                        title: "Another benchmark is already running.",
+                        message: "Only one run can go at a time. You can watch it instead.",
+                        kind: ErrorKind::Amber,
+                        retryable: false,
+                        actions: Some(rsx! {
+                            Link {
+                                to: Route::LiveRun {
+                                    run_id,
+                                },
+                                class: "{primary}",
+                                "Watch the run"
+                            }
+                        }),
+                        on_retry: move |_| {},
+                    }
+                } else {
+                    ApiErrorPanel {
+                        title: refused_title,
+                        error,
+                        on_retry: move |_| phase.set(Phase::Editing),
                     }
                 }
             }
         }
         Phase::Editing | Phase::Running => match (effective_mode, &targets_state) {
             (_, Loaded::Loading) => rsx! {
-                LoadingPanel { label: "Loading saved targets" }
+                TargetSkeleton {}
             },
             (_, Loaded::Failed(error)) => rsx! {
                 ApiErrorPanel {
@@ -603,492 +583,175 @@ pub fn Submission(#[props(default)] from_run: Option<String>) -> Element {
                 }
             },
             (StartMode::Target, Loaded::Ready(view)) if !view.targets.is_empty() => {
-                let lookup = view.clone();
-                let chosen = current_target.clone();
-                let selected_id = chosen
-                    .as_ref()
-                    .map(|filled| filled.target_id.clone())
-                    .unwrap_or_default();
-                let selected_target = chosen
-                    .as_ref()
-                    .and_then(|filled| target_by_id(view, &filled.target_id))
-                    .cloned();
-                let lines = selected_target
-                    .as_ref()
-                    .map(target_lines)
-                    .unwrap_or_default();
-                let has_workload = chosen
-                    .as_ref()
-                    .map(|filled| filled.has_workload)
-                    .unwrap_or(false);
-                let workload_mode = chosen
-                    .as_ref()
-                    .map(|filled| filled.mode)
-                    .unwrap_or(WorkloadMode::Requests);
-                let amount = chosen
-                    .as_ref()
-                    .map(|filled| filled.amount.clone())
-                    .unwrap_or_default();
-                let concurrency = chosen
-                    .as_ref()
-                    .map(|filled| filled.concurrency.clone())
-                    .unwrap_or_default();
                 let options = view.targets.clone();
+                let runtimes = runtimes.clone();
 
                 rsx! {
                     form {
+                        id: FORM_ID,
                         class: "flex flex-col gap-(--space-4)",
                         onsubmit: move |event| {
                             event.prevent_default();
                             submit_target(());
                         },
-                        Card {
-                            CardHeader {
-                                title: "Saved target",
-                                subtitle: "A project defined on the server. Its path, start command and headers stay on the server.",
-                            }
-                            div { class: "flex flex-col gap-(--space-4) p-(--space-4)",
-                                FormField { label: "Target",
-                                    select {
-                                        class: "{INPUT_CLASS}",
-                                        disabled: running,
-                                        onchange: move |event| {
-                                            if let Some(target) = target_by_id(&lookup, &event.value()) {
-                                                target_form.set(Some(TargetForm::for_target(target)));
-                                            }
-                                        },
-                                        for target in options.iter() {
-                                            option {
-                                                value: "{target.id}",
-                                                selected: target.id == selected_id,
-                                                "{target.name}"
-                                            }
-                                        }
-                                    }
-                                }
-                                if selected_target.is_some() {
-                                    div { class: "flex flex-col gap-(--space-2) rounded-(--round-md) border border-(color:--clr-border) bg-(--clr-surface-raised) p-(--space-3)",
-                                        for (label, value) in lines.iter() {
-                                            p { class: "text-(length:--fs-sm) text-(color:--clr-text)",
-                                                span { class: "text-(color:--clr-text-muted)", "{label}: " }
-                                                span { class: "break-all", "{value}" }
-                                            }
-                                        }
-                                    }
-                                }
-                                if has_workload {
-                                    div { class: "grid grid-cols-1 gap-(--space-4) sm:grid-cols-3",
-                                        FormField { label: "Run until",
-                                            select {
-                                                class: "{INPUT_CLASS}",
-                                                disabled: running,
-                                                onchange: move |event| {
-                                                    let mode = if event.value() == "duration" {
-                                                        WorkloadMode::Duration
-                                                    } else {
-                                                        WorkloadMode::Requests
-                                                    };
-                                                    target_form.with_mut(|filled| {
-                                                        if let Some(filled) = filled {
-                                                            filled.mode = mode;
-                                                        }
-                                                    });
-                                                },
-                                                option {
-                                                    value: "requests",
-                                                    selected: workload_mode == WorkloadMode::Requests,
-                                                    "A number of requests"
-                                                }
-                                                option {
-                                                    value: "duration",
-                                                    selected: workload_mode == WorkloadMode::Duration,
-                                                    "A duration"
-                                                }
-                                            }
-                                        }
-                                        FormField {
-                                            label: if workload_mode == WorkloadMode::Requests { "Requests" } else { "Duration (seconds)" },
-                                            hint: if workload_mode == WorkloadMode::Requests { "" } else { "Up to 300 seconds" },
-                                            input {
-                                                r#type: "text",
-                                                inputmode: "numeric",
-                                                class: "{INPUT_CLASS}",
-                                                value: "{amount}",
-                                                disabled: running,
-                                                oninput: move |event| {
-                                                    target_form.with_mut(|filled| {
-                                                        if let Some(filled) = filled {
-                                                            filled.amount = event.value();
-                                                        }
-                                                    });
-                                                },
-                                            }
-                                        }
-                                        FormField { label: "Concurrency", hint: "Simultaneous requests",
-                                            input {
-                                                r#type: "text",
-                                                inputmode: "numeric",
-                                                class: "{INPUT_CLASS}",
-                                                value: "{concurrency}",
-                                                disabled: running,
-                                                oninput: move |event| {
-                                                    target_form.with_mut(|filled| {
-                                                        if let Some(filled) = filled {
-                                                            filled.concurrency = event.value();
-                                                        }
-                                                    });
-                                                },
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    p { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)",
-                                        "This target defines no workload, so the run only starts the target and checks its readiness."
-                                    }
-                                }
-                                p { class: "text-(length:--fs-xs) text-(color:--clr-text-faint)",
-                                    "Targets are changed by editing the server's targets file, not here."
-                                }
-                            }
-                        }
-                        div { class: "flex flex-col items-start gap-(--space-3)",
-                            button {
-                                r#type: "submit",
-                                class: "{primary}",
-                                disabled: running,
-                                Icon { kind: IconKind::Play, class: "size-(--icon-sm)" }
-                                if running {
-                                    "Running benchmark…"
-                                } else {
-                                    "Run benchmark"
-                                }
-                            }
-                            if let Some(message) = &target_message {
-                                p {
-                                    class: "w-full rounded-(--round-md) border border-(color:--clr-danger) bg-(--clr-danger-soft) px-(--space-3) py-(--space-2) text-(length:--fs-sm) text-(color:--clr-danger)",
-                                    role: "alert",
-                                    "{message}"
-                                }
-                            }
+                        SavedTargetForm {
+                            targets: options,
+                            runtimes,
+                            form: target_form,
+                            running,
                         }
                     }
                 }
             }
             (_, Loaded::Ready(_)) if custom_allowed => rsx! {
                 form {
-                    class: "flex flex-col gap-(--space-4)",
+                    id: FORM_ID,
+                    class: if flash() { "fill-flash flex flex-col gap-(--space-4)" } else { "flex flex-col gap-(--space-4)" },
                     onsubmit: move |event| {
                         event.prevent_default();
                         submit_custom(());
                     },
-                    ImportSection { form, errors, running }
-                    Card {
-                        CardHeader {
-                            title: "Target",
-                            subtitle: "The project directory on the machine running benchmark-api.",
-                        }
-                        div { class: "p-(--space-4)",
-                            FormField {
-                                label: "Project path",
-                                hint: "Absolute path, for example /home/me/projects/my-api",
-                                error: error_for(&current_errors, Field::Path),
-                                input {
-                                    r#type: "text",
-                                    class: "{INPUT_CLASS}",
-                                    value: "{state.path}",
-                                    disabled: running,
-                                    oninput: move |event| form.with_mut(|f| f.path = event.value()),
-                                }
-                            }
-                        }
-                    }
-                    Card {
-                        CardHeader {
-                            title: "Startup",
-                            subtitle: "How to start the target and when it counts as ready. Optional.",
-                        }
-                        div { class: "flex flex-col gap-(--space-4) p-(--space-4)",
-                            label { class: "flex cursor-pointer items-center gap-(--space-3) rounded-(--round-md) border border-(color:--clr-border) bg-(--clr-surface-raised) px-(--space-3) py-(--space-2) text-(length:--fs-sm) text-(color:--clr-text) transition-colors hover:border-(color:--clr-border-strong)",
-                                input {
-                                    r#type: "checkbox",
-                                    class: "size-4 cursor-pointer accent-(--clr-primary)",
-                                    checked: state.startup_enabled,
-                                    disabled: running,
-                                    onchange: move |event| form.with_mut(|f| f.startup_enabled = event.checked()),
-                                }
-                                "Configure startup explicitly"
-                            }
-                            if state.startup_enabled {
-                                div { class: "grid grid-cols-1 gap-(--space-4) sm:grid-cols-2",
-                                    FormField {
-                                        label: "Program",
-                                        error: error_for(&current_errors, Field::Program),
-                                        input {
-                                            r#type: "text",
-                                            class: "{INPUT_CLASS}",
-                                            placeholder: "bun",
-                                            value: "{state.program}",
-                                            disabled: running,
-                                            oninput: move |event| form.with_mut(|f| f.program = event.value()),
-                                        }
-                                    }
-                                    FormField { label: "Arguments", hint: "Separated by spaces",
-                                        input {
-                                            r#type: "text",
-                                            class: "{INPUT_CLASS}",
-                                            placeholder: "run start",
-                                            value: "{state.args}",
-                                            disabled: running,
-                                            oninput: move |event| form.with_mut(|f| f.args = event.value()),
-                                        }
-                                    }
-                                    FormField {
-                                        label: "Readiness host",
-                                        error: error_for(&current_errors, Field::Host),
-                                        input {
-                                            r#type: "text",
-                                            class: "{INPUT_CLASS}",
-                                            value: "{state.host}",
-                                            disabled: running,
-                                            oninput: move |event| form.with_mut(|f| f.host = event.value()),
-                                        }
-                                    }
-                                    FormField {
-                                        label: "Readiness port",
-                                        error: error_for(&current_errors, Field::Port),
-                                        input {
-                                            r#type: "text",
-                                            inputmode: "numeric",
-                                            class: "{INPUT_CLASS}",
-                                            placeholder: "5001",
-                                            value: "{state.port}",
-                                            disabled: running,
-                                            oninput: move |event| form.with_mut(|f| f.port = event.value()),
-                                        }
-                                    }
-                                    FormField {
-                                        label: "Readiness path",
-                                        hint: "Checked with GET",
-                                        error: error_for(&current_errors, Field::ReadinessPath),
-                                        input {
-                                            r#type: "text",
-                                            class: "{INPUT_CLASS}",
-                                            value: "{state.readiness_path}",
-                                            disabled: running,
-                                            oninput: move |event| form.with_mut(|f| f.readiness_path = event.value()),
-                                        }
-                                    }
-                                    FormField {
-                                        label: "Expected status",
-                                        error: error_for(&current_errors, Field::ExpectedStatus),
-                                        input {
-                                            r#type: "text",
-                                            inputmode: "numeric",
-                                            class: "{INPUT_CLASS}",
-                                            value: "{state.expected_status}",
-                                            disabled: running,
-                                            oninput: move |event| form.with_mut(|f| f.expected_status = event.value()),
-                                        }
-                                    }
-                                }
-                                FormField {
-                                    label: "Readiness headers",
-                                    hint: "Optional. One per line as Name: value. Leave empty to probe with the API's default health credentials. Never stored.",
-                                    error: error_for(&current_errors, Field::ReadinessHeaders),
-                                    textarea {
-                                        class: "{TEXTAREA_CLASS}",
-                                        rows: "3",
-                                        spellcheck: "false",
-                                        autocomplete: "off",
-                                        placeholder: "X-Client-Id: my-client\nX-Client-Secret: my-secret",
-                                        value: "{state.readiness_headers}",
-                                        disabled: running,
-                                        oninput: move |event| form.with_mut(|f| f.readiness_headers = event.value()),
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Card {
-                        CardHeader {
-                            title: "Workload",
-                            subtitle: "HTTP load sent to the running target. Optional, needed for latency, memory and CPU.",
-                        }
-                        div { class: "flex flex-col gap-(--space-4) p-(--space-4)",
-                            label { class: "flex cursor-pointer items-center gap-(--space-3) rounded-(--round-md) border border-(color:--clr-border) bg-(--clr-surface-raised) px-(--space-3) py-(--space-2) text-(length:--fs-sm) text-(color:--clr-text) transition-colors hover:border-(color:--clr-border-strong)",
-                                input {
-                                    r#type: "checkbox",
-                                    class: "size-4 cursor-pointer accent-(--clr-primary)",
-                                    checked: state.workload_enabled,
-                                    disabled: running,
-                                    onchange: move |event| form.with_mut(|f| f.workload_enabled = event.checked()),
-                                }
-                                "Send an HTTP workload"
-                            }
-                            if state.workload_enabled {
-                                div { class: "grid grid-cols-1 gap-(--space-4) sm:grid-cols-2",
-                                    FormField {
-                                        label: "Request path",
-                                        hint: "Sent with GET",
-                                        error: error_for(&current_errors, Field::WorkloadPath),
-                                        input {
-                                            r#type: "text",
-                                            class: "{INPUT_CLASS}",
-                                            placeholder: "/items",
-                                            value: "{state.workload_path}",
-                                            disabled: running,
-                                            oninput: move |event| form.with_mut(|f| f.workload_path = event.value()),
-                                        }
-                                    }
-                                    FormField { label: "Run until",
-                                        select {
-                                            class: "{INPUT_CLASS}",
-                                            disabled: running,
-                                            onchange: move |event| {
-                                                let mode = if event.value() == "duration" {
-                                                    WorkloadMode::Duration
-                                                } else {
-                                                    WorkloadMode::Requests
-                                                };
-                                                form.with_mut(|f| f.mode = mode);
-                                            },
-                                            option {
-                                                value: "requests",
-                                                selected: state.mode == WorkloadMode::Requests,
-                                                "A number of requests"
-                                            }
-                                            option {
-                                                value: "duration",
-                                                selected: state.mode == WorkloadMode::Duration,
-                                                "A duration"
-                                            }
-                                        }
-                                    }
-                                    FormField {
-                                        label: if state.mode == WorkloadMode::Requests { "Requests" } else { "Duration (seconds)" },
-                                        hint: if state.mode == WorkloadMode::Requests { "" } else { "Up to 300 seconds" },
-                                        error: error_for(&current_errors, Field::Amount),
-                                        input {
-                                            r#type: "text",
-                                            inputmode: "numeric",
-                                            class: "{INPUT_CLASS}",
-                                            value: "{state.amount}",
-                                            disabled: running,
-                                            oninput: move |event| form.with_mut(|f| f.amount = event.value()),
-                                        }
-                                    }
-                                    FormField {
-                                        label: "Concurrency",
-                                        hint: "Simultaneous requests",
-                                        error: error_for(&current_errors, Field::Concurrency),
-                                        input {
-                                            r#type: "text",
-                                            inputmode: "numeric",
-                                            class: "{INPUT_CLASS}",
-                                            value: "{state.concurrency}",
-                                            disabled: running,
-                                            oninput: move |event| form.with_mut(|f| f.concurrency = event.value()),
-                                        }
-                                    }
-                                }
-                                FormField {
-                                    label: "Request headers",
-                                    hint: "Optional. One per line as Name: value, for example X-Client-Id: my-client. Sent with every request of the workload and never stored.",
-                                    error: error_for(&current_errors, Field::WorkloadHeaders),
-                                    textarea {
-                                        class: "{TEXTAREA_CLASS}",
-                                        rows: "3",
-                                        spellcheck: "false",
-                                        autocomplete: "off",
-                                        placeholder: "X-Client-Id: my-client\nX-Client-Secret: my-secret",
-                                        value: "{state.workload_headers}",
-                                        disabled: running,
-                                        oninput: move |event| form.with_mut(|f| f.workload_headers = event.value()),
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    WorkspaceSection {
+                    CustomForm {
                         form,
-                        error: error_for(&current_errors, Field::Workspace),
+                        reference,
+                        errors: current_errors.clone(),
                         running,
-                    }
-                    div { class: "flex flex-col items-start gap-(--space-3)",
-                        button {
-                            r#type: "submit",
-                            class: "{primary}",
-                            disabled: running,
-                            Icon { kind: IconKind::Play, class: "size-(--icon-sm)" }
-                            if running {
-                                "Running benchmark…"
-                            } else {
-                                "Run benchmark"
-                            }
-                        }
-                        if running {
-                            div {
-                                class: "flex w-full items-start gap-(--space-3) rounded-(--round-md) border border-(color:--clr-border) bg-(--clr-surface) px-(--space-3) py-(--space-3)",
-                                role: "status",
-                                span { class: "mt-(--space-1) inline-block size-4 shrink-0 animate-spin rounded-(--round-full) border-2 border-(color:--clr-border-strong) border-t-(color:--clr-accent)" }
-                                p { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)",
-                                    "Starting the run. You will be taken to its live view in a moment."
-                                }
-                            }
-                        }
-                        if !current_errors.is_empty() {
-                            p {
-                                class: "w-full rounded-(--round-md) border border-(color:--clr-danger) bg-(--clr-danger-soft) px-(--space-3) py-(--space-2) text-(length:--fs-sm) text-(color:--clr-danger)",
-                                role: "alert",
-                                "Fix the highlighted fields and try again."
-                            }
-                        }
                     }
                 }
             },
             (_, Loaded::Ready(_)) => rsx! {
-                EmptyState {
-                    title: "No saved targets",
-                    description: "Custom runs are disabled on this server, and no saved targets are defined.",
-                    p { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)",
-                        "Add a project to the targets file on the server, then reload this page."
+                div {
+                    class: "flex flex-col gap-(--space-3) rounded-(--round-lg) border border-(color:--clr-warning)/40 bg-(--clr-warning-soft) p-(--space-4) sm:flex-row sm:items-center sm:justify-between",
+                    role: "status",
+                    div { class: "flex min-w-0 items-start gap-(--space-3) text-(color:--clr-warning-text)",
+                        Icon { kind: IconKind::Alert, class: "mt-px size-(--icon-md) shrink-0" }
+                        div { class: "min-w-0",
+                            p { class: "text-(length:--fs-base) font-(weight:--fw-semibold)",
+                                "No saved targets"
+                            }
+                            p { class: "text-(length:--fs-sm)",
+                                "Custom runs are disabled on this server, and no saved targets are defined."
+                            }
+                        }
+                    }
+                    button {
+                        r#type: "button",
+                        class: "{secondary}",
+                        onclick: move |_| reload.with_mut(|count| *count += 1),
+                        "Reload"
                     }
                 }
             },
         },
     };
 
+    // The panel with the summary, the checks and the Run button
+    let side: Element = if matches!(phase(), Phase::Failed(_)) {
+        rsx! {}
+    } else {
+        match (effective_mode, &targets_state) {
+            (StartMode::Target, Loaded::Ready(view)) if !view.targets.is_empty() => {
+                let selected = current_target
+                    .as_ref()
+                    .and_then(|filled| target_by_id(view, &filled.target_id));
+
+                let plan = selected
+                    .zip(current_target.as_ref())
+                    .map(|(target, filled)| target_plan(target, filled))
+                    .unwrap_or_default();
+                let answer = estimate();
+                let (timeline, estimate_label) = panel_parts(&plan, answer.as_ref());
+
+                rsx! {
+                    RunPanel {
+                        lines: target_lines(selected, current_target.as_ref()),
+                        timeline,
+                        estimate: estimate_label,
+                        checks: target_check_list.clone(),
+                        form_id: FORM_ID,
+                        ready: target_ready,
+                        running,
+                        message: target_message.clone(),
+                    }
+                }
+            }
+            (_, Loaded::Ready(_)) if custom_allowed => {
+                let plan = custom_plan(&state);
+                let answer = estimate();
+                let (timeline, estimate_label) = panel_parts(&plan, answer.as_ref());
+
+                rsx! {
+                    RunPanel {
+                        lines: custom_lines(&state),
+                        timeline,
+                        estimate: estimate_label,
+                        checks: custom_check_list.clone(),
+                        form_id: FORM_ID,
+                        ready: custom_ready,
+                        running,
+                        copy_json: live
+                            .as_ref()
+                            .ok()
+                            .and_then(|request| serde_json::to_string_pretty(request).ok()),
+                    }
+                }
+            }
+            _ => rsx! {},
+        }
+    };
+
+    // Mini cards of earlier runs of the project being set up
+    let previous: Element = match (&history_state, &targets_state) {
+        (Loaded::Ready(groups), Loaded::Ready(view)) => {
+            let items = match recent() {
+                Some(Ok(page)) => page.items,
+                _ => Vec::new(),
+            };
+
+            rsx! {
+                PreviousRuns {
+                    cards: cards(groups, &items, view, &wanted_path(), now_epoch_ms()),
+                    on_use: move |index: usize| apply_history(index),
+                }
+            }
+        }
+        _ => rsx! {},
+    };
+
     rsx! {
         document::Title { "New benchmark · Benchmark" }
         div {
-            class: "mx-auto w-full max-w-(--form-max)",
-            // Escape closes the Previous runs panel from anywhere on the page, including the
-            // button that opened it
-            onkeydown: move |event| {
-                if history_open() && format!("{:?}", event.key()) == "Escape" {
-                    history_open.set(false);
-                }
-            },
+            class: "mx-auto w-full max-w-6xl",
             PageHeader {
                 title: "New benchmark",
                 description: "Build, start and measure a project. You follow it live while it runs, and the result is stored in the run history.",
-                button {
-                    r#type: "button",
-                    class: "{secondary}",
-                    "aria-expanded": if history_open() { "true" } else { "false" },
-                    onclick: move |_| {
-                        let open = *history_open.peek();
-                        history_open.set(!open);
-                    },
-                    Icon { kind: IconKind::History, class: "size-(--icon-sm)" }
-                    "Previous runs"
-                }
-                Link { to: Route::History {}, class: "{secondary}", "All runs" }
+                Link { to: Route::runs(), class: "{secondary}", "All runs" }
             }
-            {panel}
+            if paste_open() {
+                PasteModal {
+                    form,
+                    errors,
+                    on_filled: move |_| {
+                        flash.set(true);
+                        spawn(async move {
+                            TimeoutFuture::new(1_300).await;
+                            flash.set(false);
+                        });
+                    },
+                    on_close: move |_| paste_open.set(false),
+                }
+            }
             {banner_view}
-            {switch_bar}
-            {body}
+            div { class: "grid grid-cols-1 gap-(--space-5) lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start",
+                div { class: "flex min-w-0 flex-col gap-(--space-4)",
+                    {switch_bar}
+                    {body}
+                }
+                aside { class: "flex flex-col gap-(--space-4) lg:sticky lg:top-[calc(var(--topbar-height)+1rem)] lg:max-h-[calc(100vh-var(--topbar-height)-2rem)] lg:overflow-y-auto",
+                    {side}
+                    {previous}
+                }
+            }
         }
     }
 }

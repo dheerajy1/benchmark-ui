@@ -212,10 +212,14 @@ pub enum Terminal {
         code: Option<String>,
         message: String,
         stage: Option<String>,
+        // The partial result is stored and can be opened
+        persisted: bool,
     },
-    // Stopped on request, the work and its cleanup are over and nothing was stored
+    // Stopped on request, the work and its cleanup are over
     Cancelled {
         stage: Option<String>,
+        // The partial result is stored and can be opened
+        persisted: bool,
     },
 }
 
@@ -236,6 +240,21 @@ pub struct LogLine {
     pub t_ms: u64,
     pub text: String,
     pub tone: Tone,
+}
+
+// The event log as plain text, oldest first, one line per event
+pub fn log_text(lines: &[LogLine]) -> String {
+    lines
+        .iter()
+        .map(|line| {
+            format!(
+                "+{}  {}",
+                crate::format::format_duration_ms(line.t_ms as f64),
+                line.text
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 // What applying one event did
@@ -273,6 +292,8 @@ pub struct LiveState {
     can_cancel: bool,
     cancelling: bool,
     discovery_detail: Option<String>,
+    // The runtime code the run detected, such as `rust`
+    runtime: Option<String>,
     artifact_detail: Option<String>,
     baseline_detail: Option<String>,
     // The server time of the latest event and the local clock when it arrived
@@ -297,6 +318,7 @@ impl LiveState {
             can_cancel: false,
             cancelling: false,
             discovery_detail: None,
+            runtime: None,
             artifact_detail: None,
             baseline_detail: None,
             anchor_t_ms: 0,
@@ -306,6 +328,11 @@ impl LiveState {
 
     pub fn run_id(&self) -> &str {
         &self.run_id
+    }
+
+    // The runtime code the run detected, once it has reported it
+    pub fn runtime(&self) -> Option<&str> {
+        self.runtime.as_deref()
     }
 
     pub fn plan(&self) -> Option<&Plan> {
@@ -468,6 +495,7 @@ impl LiveState {
 
     // A run that is stored but whose live record is gone
     pub fn finish_from_stored(&mut self, result: BenchmarkResult) {
+        self.runtime = result.discovery.runtime.clone();
         self.terminal = Some(Terminal::Completed(Some(Box::new(result))));
         self.recovered = true;
     }
@@ -503,6 +531,7 @@ impl LiveState {
             "run.cancelled" => {
                 self.terminal = Some(Terminal::Cancelled {
                     stage: text(data, "stage"),
+                    persisted: persisted(data),
                 });
             }
             "stage.started" => {
@@ -618,6 +647,7 @@ impl LiveState {
                     code: text(data, "code"),
                     message: text(data, "message").unwrap_or_else(|| "The run failed.".to_string()),
                     stage: text(data, "stage"),
+                    persisted: persisted(data),
                 });
             }
             // A kind this version does not know is skipped, its seq still counts
@@ -646,6 +676,7 @@ impl LiveState {
 
         match data.get("metric").and_then(Value::as_str) {
             Some("discovery") => {
+                self.runtime = text(value, "runtime");
                 self.discovery_detail = Some(match text(value, "runtime") {
                     Some(runtime) => format!("Runtime {runtime}"),
                     None => "No runtime detected".to_string(),
@@ -689,6 +720,13 @@ fn stage_of(data: &Value) -> Option<Stage> {
     data.get("stage")
         .and_then(Value::as_str)
         .and_then(Stage::from_key)
+}
+
+// Whether a terminal event says the run is stored. A missing flag counts as not stored.
+fn persisted(data: &Value) -> bool {
+    data.get("persisted")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn text(value: &Value, key: &str) -> Option<String> {
@@ -1239,6 +1277,48 @@ mod tests {
     }
 
     #[test]
+    fn the_log_is_copied_as_plain_text_oldest_first() {
+        let lines = vec![
+            LogLine {
+                t_ms: 0,
+                text: "Run accepted".to_string(),
+                tone: Tone::Neutral,
+            },
+            LogLine {
+                t_ms: 1_500,
+                text: "Build finished".to_string(),
+                tone: Tone::Success,
+            },
+        ];
+
+        assert_eq!(
+            log_text(&lines),
+            "+0 ms  Run accepted\n+1.50 s  Build finished"
+        );
+        assert_eq!(log_text(&[]), "");
+    }
+
+    #[test]
+    fn the_detected_runtime_is_kept_as_its_code() {
+        let mut state = state();
+
+        assert_eq!(state.runtime(), None);
+
+        state.apply_event(accepted(Value::Null), 0);
+        state.apply_event(
+            event(
+                2,
+                10,
+                "measurement.available",
+                json!({"metric": "discovery", "value": {"runtime": "rust", "build": null}}),
+            ),
+            0,
+        );
+
+        assert_eq!(state.runtime(), Some("rust"));
+    }
+
+    #[test]
     fn no_runtime_is_said_plainly() {
         let mut state = state();
 
@@ -1473,7 +1553,8 @@ mod tests {
             Some(&Terminal::Failed {
                 code: Some("INTERNAL_SERVER_ERROR".to_string()),
                 message: "boom".to_string(),
-                stage: Some("build".to_string())
+                stage: Some("build".to_string()),
+                persisted: false
             })
         );
         assert_eq!(state.failed_stage(), Some(Stage::Build));
@@ -1704,7 +1785,8 @@ mod tests {
         assert_eq!(
             state.terminal(),
             Some(&Terminal::Cancelled {
-                stage: Some("workload".to_string())
+                stage: Some("workload".to_string()),
+                persisted: false
             })
         );
         assert_eq!(state.cancelled_stage(), Some(Stage::Workload));

@@ -96,6 +96,7 @@ pub fn failure_message(failure: &CancelFailure) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::features::connection::RequestInfo;
     use serde_json::{json, Value};
 
     use super::*;
@@ -197,6 +198,7 @@ mod tests {
             code: None,
             message: "catalogue message".to_string(),
             detail: detail.map(str::to_string),
+            request: RequestInfo::default(),
         }
     }
 

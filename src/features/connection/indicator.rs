@@ -1,45 +1,57 @@
 use dioxus::prelude::*;
 
 use super::{
-    client::base_url,
+    health::HEALTH,
     status::{ConnectionState, CONNECTION},
 };
 
-// Top bar pill that reports whether benchmark-api answered the last request
+// Top bar pill with the API state. On hover it turns soft green and slides out the latency.
 #[component]
-pub fn ConnectionIndicator() -> Element {
+pub fn ApiPill() -> Element {
     let state = *CONNECTION.read();
-    let url = base_url();
+    let sample = HEALTH.read().clone();
 
-    let (label, dot_class, text_class) = match state {
+    let database_down = sample.as_ref().is_some_and(|sample| !sample.database_ok);
+    let latency = sample
+        .as_ref()
+        .map(|sample| format!("{} ms", sample.latency_ms));
+
+    let (label, dot_class, hover_class) = match state {
         ConnectionState::Unknown => (
-            "Checking API",
+            "API",
             "bg-(--clr-text-faint) animate-pulse",
-            "text-(color:--clr-text-muted)",
+            "hover:bg-(--clr-surface-hover)",
+        ),
+        ConnectionState::Online if database_down => (
+            "API · database down",
+            "bg-(--clr-warning)",
+            "hover:bg-(--clr-warning-soft)",
         ),
         ConnectionState::Online => (
-            "API connected",
-            "bg-(--clr-success)",
-            "text-(color:--clr-text)",
+            "API",
+            "bg-(--clr-success) pulse-dot text-(color:--clr-success)",
+            "hover:bg-(--clr-success-pill)",
         ),
         ConnectionState::Offline => (
-            "API unreachable",
+            "API offline",
             "bg-(--clr-danger)",
-            "text-(color:--clr-danger)",
+            "hover:bg-(--clr-danger-soft)",
         ),
     };
 
     rsx! {
         div {
-            class: "flex h-6 min-w-0 items-center gap-(--space-2) rounded-(--round-full) border border-(color:--clr-border) bg-(--clr-surface) px-(--space-3)",
+            class: "group/api flex h-8 min-w-0 items-center rounded-(--round-full) bg-(--clr-surface-hover) px-(--space-3) transition-colors duration-200 {hover_class}",
             role: "status",
-            title: "{url}",
+            "aria-label": "{label}",
             span { class: "inline-block size-(--dot-size) shrink-0 rounded-(--round-full) {dot_class}" }
-            span { class: "shrink-0 text-(length:--fs-xs) font-(weight:--fw-medium) {text_class}",
+            span { class: "ml-(--space-2) shrink-0 text-(length:--fs-xs) font-(weight:--fw-medium) text-(color:--clr-text)",
                 "{label}"
             }
-            span { class: "hidden max-w-48 truncate border-l border-(color:--clr-border) pl-(--space-2) font-(family-name:--font-code) text-(length:--fs-2xs) text-(color:--clr-text-faint) md:inline xl:max-w-80",
-                "{url}"
+            if let Some(latency) = latency {
+                span { class: "max-w-0 overflow-hidden text-(length:--fs-xs) whitespace-nowrap tabular-nums text-(color:--clr-success-text) opacity-0 transition-all duration-400 ease-(--ease-out) group-hover/api:ml-(--space-2) group-hover/api:max-w-20 group-hover/api:opacity-100",
+                    "{latency}"
+                }
             }
         }
     }

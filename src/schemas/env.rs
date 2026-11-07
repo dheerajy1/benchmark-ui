@@ -8,18 +8,10 @@ pub struct EnvSchema {
     pub app_port: u16,
 
     // Health check client identifier
-    #[validate(length(
-        min = 1,
-        max = 50,
-        message = "CLIENT_ID must be 1-50 characters"
-    ))]
+    #[validate(length(min = 1, max = 50, message = "CLIENT_ID must be 1-50 characters"))]
     pub client_id: String,
 
     // Health check client secret
-    #[validate(length(
-        min = 1,
-        max = 50,
-        message = "CLIENT_SECRET must be 1-50 characters"
-    ))]
+    #[validate(length(min = 1, max = 50, message = "CLIENT_SECRET must be 1-50 characters"))]
     pub client_secret: String,
 }

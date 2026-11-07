@@ -1,12 +1,11 @@
 use super::models::TrendPoint;
 use crate::{
-    components::{verdict, Tone, Verdict},
-    features::{
-        charts::{ChartTone, SeriesPoint},
-        history::RunMetrics,
-    },
-    format::{date_part, format_signed_percent, format_timestamp, ValueFormat},
+    features::charts::{ChartTone, SeriesPoint},
+    format::{date_part, format_timestamp, ValueFormat},
 };
+
+// How many of the newest runs the tiles and charts show
+pub const RECENT_RUNS: usize = 12;
 
 // The six measurements charted over time
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,18 +76,6 @@ impl TrendMetric {
     }
 }
 
-// Value of a metric on the latest run's history summary
-pub fn summary_value(metric: TrendMetric, summary: &RunMetrics) -> Option<f64> {
-    match metric {
-        TrendMetric::Throughput => summary.requests_per_second,
-        TrendMetric::P95Latency => summary.p95_ms,
-        TrendMetric::PeakMemory => summary.memory_peak_bytes.map(|value| value as f64),
-        TrendMetric::CpuAverage => summary.cpu_average_percent,
-        TrendMetric::Startup => summary.startup_time_ms.map(|value| value as f64),
-        TrendMetric::Build => summary.build_time_ms.map(|value| value as f64),
-    }
-}
-
 // Chart points in chronological order, the API returns the newest run first
 pub fn series_points(trends: &[TrendPoint], metric: TrendMetric) -> Vec<SeriesPoint> {
     trends
@@ -102,38 +89,14 @@ pub fn series_points(trends: &[TrendPoint], metric: TrendMetric) -> Vec<SeriesPo
         .collect()
 }
 
-// Percentage change of the newest run against the one before it, `None` when either is missing
-pub fn change_vs_previous(trends: &[TrendPoint], metric: TrendMetric) -> Option<f64> {
-    let latest = metric.value(trends.first()?)?;
-    let previous = metric.value(trends.get(1)?)?;
-
-    if previous == 0.0 {
-        return None;
-    }
-
-    Some((latest - previous) / previous * 100.0)
+// The newest runs, newest first
+pub fn newest(trends: &[TrendPoint]) -> &[TrendPoint] {
+    &trends[..trends.len().min(RECENT_RUNS)]
 }
 
-// Text and tone for the hint under a headline tile
-pub fn change_hint(trends: &[TrendPoint], metric: TrendMetric) -> (String, Tone) {
-    let Some(change) = change_vs_previous(trends, metric) else {
-        return (String::new(), Tone::Neutral);
-    };
-
-    let tone = match verdict(change, metric.lower_is_better()) {
-        Verdict::Improved => Tone::Success,
-        Verdict::Regressed => Tone::Danger,
-        Verdict::Unchanged => Tone::Neutral,
-    };
-
-    (
-        format!(
-            "{} {} vs previous run",
-            if change > 0.0 { "↑" } else { "↓" },
-            format_signed_percent(change)
-        ),
-        tone,
-    )
+// "2026-10-08T05:11:22Z" becomes "10-08", short enough to label every bar of a run chart
+pub fn short_day(created_at: &str) -> String {
+    created_at.get(5..10).unwrap_or(created_at).to_string()
 }
 
 #[cfg(test)]
@@ -177,54 +140,19 @@ mod tests {
     }
 
     #[test]
-    fn computes_change_against_the_previous_run() {
-        let trends = vec![
-            point("new", "2026-10-08T05:00:00.000Z", Some(120.0), Some(9.0)),
-            point("old", "2026-10-07T05:00:00.000Z", Some(100.0), Some(10.0)),
-        ];
+    fn keeps_only_the_newest_twelve() {
+        let trends: Vec<TrendPoint> = (0..20)
+            .map(|index| point(&format!("r{index}"), "2026-10-08T05:00:00.000Z", None, None))
+            .collect();
 
-        assert_eq!(
-            change_vs_previous(&trends, TrendMetric::Throughput),
-            Some(20.0)
-        );
-        assert_eq!(
-            change_vs_previous(&trends, TrendMetric::P95Latency),
-            Some(-10.0)
-        );
+        assert_eq!(newest(&trends).len(), RECENT_RUNS);
+        assert_eq!(newest(&trends)[0].run_id, "r0");
+        assert_eq!(newest(&trends[..3]).len(), 3);
     }
 
     #[test]
-    fn no_change_without_two_comparable_runs() {
-        let single = vec![point("a", "2026-10-08T05:00:00.000Z", Some(1.0), None)];
-        assert_eq!(change_vs_previous(&single, TrendMetric::Throughput), None);
-
-        let gap = vec![
-            point("new", "2026-10-08T05:00:00.000Z", Some(1.0), None),
-            point("old", "2026-10-07T05:00:00.000Z", None, None),
-        ];
-        assert_eq!(change_vs_previous(&gap, TrendMetric::Throughput), None);
-
-        let zero = vec![
-            point("new", "2026-10-08T05:00:00.000Z", Some(1.0), None),
-            point("old", "2026-10-07T05:00:00.000Z", Some(0.0), None),
-        ];
-        assert_eq!(change_vs_previous(&zero, TrendMetric::Throughput), None);
-    }
-
-    #[test]
-    fn hint_uses_metric_direction() {
-        let trends = vec![
-            point("new", "2026-10-08T05:00:00.000Z", Some(120.0), Some(12.0)),
-            point("old", "2026-10-07T05:00:00.000Z", Some(100.0), Some(10.0)),
-        ];
-
-        assert_eq!(
-            change_hint(&trends, TrendMetric::Throughput).1,
-            Tone::Success
-        );
-        assert_eq!(
-            change_hint(&trends, TrendMetric::P95Latency).1,
-            Tone::Danger
-        );
+    fn shortens_a_timestamp_to_month_and_day() {
+        assert_eq!(short_day("2026-10-08T05:11:22Z"), "10-08");
+        assert_eq!(short_day("x"), "x");
     }
 }

@@ -2,26 +2,26 @@ use dioxus::prelude::*;
 use gloo_timers::future::TimeoutFuture;
 
 use super::{
-    cancel_control::CancelControl,
     driver::{follow, FeedState},
-    pipeline::Pipeline,
-    state::{mode_title, workspace_series, LiveState, Progress, SamplePoint, Stage, Terminal},
+    header::{HeaderCard, LiveHud, TabTitle},
+    last_run::fetch_last_run,
+    outcome::Outcome,
+    phase::Charts,
+    pipeline::{Pipeline, UpNext},
+    state::{log_text, LiveState, Terminal},
     token::{forget_token, load_token, SessionTokenStore},
 };
 use crate::{
     app::Route,
     components::{
-        button_class, Badge, ButtonVariant, Card, CardHeader, EmptyState, ErrorState, LoadingPanel,
-        PageHeader, StatTile, Tone,
+        button_class, copy_text, use_toasts, ButtonVariant, Card, CardHeader, ErrorKind,
+        ErrorState, Icon, IconKind, LoadingPanel, PageHeader,
     },
     features::{
-        charts::{ChartTone, SeriesPoint, TrendChart},
-        run_detail::{BenchmarkResult, WorkspacesSection},
+        run_detail::WorkspacesSection,
+        submission::{fetch_stage_averages, live_total_ms},
     },
-    format::{
-        format_bytes, format_duration_ms, format_latency_ms, format_number, format_per_second,
-        format_percent, humanize_code, path_tail, short_id, ValueFormat, MISSING,
-    },
+    format::{format_duration_ms, short_id},
 };
 
 const BANNER_WARNING: &str =
@@ -78,6 +78,47 @@ fn LivePage(run_id: String) -> Element {
         async move { follow(run_id, state, feed, clock).await }
     });
 
+    // The usual time of this project's runs, for the time that is left and the tab title
+    let plan_path = use_memo(move || state.read().plan().map(|plan| plan.path.clone()));
+    let averages = use_resource(move || {
+        let path = plan_path();
+
+        async move {
+            match path {
+                Some(path) => fetch_stage_averages(&path).await.ok(),
+                None => None,
+            }
+        }
+    });
+    let estimate_ms = use_memo(move || {
+        let known = averages().flatten()?;
+        let snapshot = state.read();
+        let plan = snapshot.plan()?;
+
+        live_total_ms(plan.workload.is_some(), plan.workspaces > 0, &known)
+    });
+
+    // The newest finished run of the project, for the dashed lines of the charts
+    let last_run = use_resource(move || {
+        let path = plan_path();
+
+        async move {
+            match path {
+                Some(path) => fetch_last_run(&path).await,
+                None => None,
+            }
+        }
+    });
+
+    // The charts stop at this snapshot while the view is paused
+    let mut frozen = use_signal(|| None::<LiveState>);
+
+    use_effect(move || {
+        if state.read().is_terminal() && frozen.peek().is_some() {
+            frozen.set(None);
+        }
+    });
+
     let short = short_id(&run_id);
     let secondary = button_class(ButtonVariant::Secondary);
 
@@ -90,11 +131,16 @@ fn LivePage(run_id: String) -> Element {
 
     let body: Element = if lost {
         rsx! {
-            EmptyState {
+            ErrorState {
                 title: "This run is no longer available",
-                description: "The API no longer has this run live and it was not stored. It may have failed, or the API may have restarted while it ran.",
-                Link { to: Route::Submission {}, class: "{secondary}", "New benchmark" }
-                Link { to: Route::History {}, class: "{secondary}", "All runs" }
+                message: "The API no longer has this run live and it was not stored. It may have failed, or the API may have restarted while it ran.",
+                kind: ErrorKind::Grey,
+                retryable: false,
+                actions: Some(rsx! {
+                    Link { to: Route::new_benchmark(), class: "{secondary}", "New benchmark" }
+                    Link { to: Route::runs(), class: "{secondary}", "All runs" }
+                }),
+                on_retry: move |_| {},
             }
         }
     } else if waiting && matches!(feed(), FeedState::Connecting) {
@@ -104,14 +150,47 @@ fn LivePage(run_id: String) -> Element {
     } else {
         rsx! {
             div { class: "flex flex-col gap-(--space-4)",
-                RunBar { state, feed, clock, token }
+                HeaderCard {
+                    state,
+                    feed,
+                    clock,
+                    token,
+                    estimate_ms: estimate_ms(),
+                    paused: frozen.read().is_some(),
+                    on_pause: move |_| {
+                        if frozen.peek().is_some() {
+                            frozen.set(None);
+                        } else {
+                            frozen.set(Some(state.peek().clone()));
+                        }
+                    },
+                }
                 FeedBanner { feed, restart }
-                Outcome { state }
+                if !state.read().is_terminal() && !state.read().is_recovered() {
+                    LiveHud { state }
+                }
+                Outcome {
+                    state,
+                    last_run_id: last_run().flatten().map(|last| last.run_id),
+                }
                 if !state.read().is_recovered() {
-                    Pipeline { state, clock }
-                    LiveTiles { state }
-                    LiveCharts { state }
-                    WorkspaceLiveSection { state }
+                    div { class: "grid grid-cols-1 gap-(--space-4) lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] lg:items-start",
+                        div { class: "flex min-w-0 flex-col gap-(--space-4)",
+                            Pipeline {
+                                state,
+                                clock,
+                                averages: averages().flatten(),
+                            }
+                            UpNext { state, averages: averages().flatten() }
+                        }
+                        Charts {
+                            state,
+                            frozen,
+                            last_run: last_run().flatten(),
+                            averages: averages().flatten(),
+                            clock,
+                        }
+                    }
                 }
                 WorkspaceResults { state }
                 if !state.read().is_recovered() {
@@ -122,86 +201,18 @@ fn LivePage(run_id: String) -> Element {
     };
 
     rsx! {
-        document::Title { "Live run {short} · Benchmark" }
+        TabTitle {
+            state,
+            clock,
+            estimate_ms: estimate_ms(),
+            short: short.clone(),
+        }
         PageHeader {
             title: "Live run {short}",
             description: "A benchmark that is running now. Its steps and measurements update as they happen, and the result is stored when it finishes.",
-            Link { to: Route::History {}, class: "{secondary}", "All runs" }
+            Link { to: Route::runs(), class: "{secondary}", "All runs" }
         }
         {body}
-    }
-}
-
-// Badge text and tone of the whole run
-fn run_status(state: &LiveState, feed: &FeedState) -> (&'static str, Tone) {
-    match state.terminal() {
-        Some(Terminal::Completed(_)) => ("Completed", Tone::Success),
-        Some(Terminal::Failed { .. }) => ("Failed", Tone::Danger),
-        Some(Terminal::Cancelled { .. }) => ("Cancelled", Tone::Neutral),
-        None if state.is_cancelling() => ("Cancelling", Tone::Neutral),
-        None => match feed {
-            FeedState::Live | FeedState::Polling => ("Running", Tone::Accent),
-            FeedState::Connecting => ("Connecting", Tone::Neutral),
-            FeedState::Reconnecting { .. } => ("Reconnecting", Tone::Neutral),
-            FeedState::TooManyViewers => ("Waiting for a place", Tone::Neutral),
-            FeedState::Offline(_) => ("Offline", Tone::Danger),
-            FeedState::Finished => ("Finished", Tone::Neutral),
-            FeedState::Lost => ("Unavailable", Tone::Danger),
-        },
-    }
-}
-
-// Status, target and elapsed time of the run
-#[component]
-fn RunBar(
-    state: Signal<LiveState>,
-    feed: Signal<FeedState>,
-    clock: Signal<u64>,
-    token: Signal<Option<String>>,
-) -> Element {
-    let (status, tone, elapsed, target, short, run_id) = {
-        let snapshot = state.read();
-        let feed = feed();
-
-        let (status, tone) = run_status(&snapshot, &feed);
-
-        (
-            status,
-            tone,
-            format_duration_ms(snapshot.run_elapsed_ms(clock()) as f64),
-            snapshot.plan().map(|plan| {
-                let label = plan
-                    .target_name
-                    .clone()
-                    .unwrap_or_else(|| path_tail(&plan.path));
-
-                (label, plan.path.clone())
-            }),
-            short_id(snapshot.run_id()),
-            snapshot.run_id().to_string(),
-        )
-    };
-
-    rsx! {
-        Card {
-            div { class: "flex flex-wrap items-center gap-x-(--space-4) gap-y-(--space-2) px-(--space-4) py-(--space-3)",
-                Badge { label: status, tone }
-                span { class: "font-(family-name:--font-code) text-(length:--fs-sm) text-(color:--clr-text)",
-                    "{short}"
-                }
-                if let Some((name , full)) = target {
-                    span {
-                        class: "min-w-0 truncate text-(length:--fs-sm) text-(color:--clr-text-muted)",
-                        title: "{full}",
-                        "{name}"
-                    }
-                }
-                span { class: "ml-auto text-(length:--fs-sm) tabular-nums text-(color:--clr-text-muted)",
-                    "Elapsed {elapsed}"
-                }
-                CancelControl { state, run_id, token }
-            }
-        }
     }
 }
 
@@ -214,7 +225,7 @@ fn FeedBanner(feed: Signal<FeedState>, restart: Signal<u32>) -> Element {
     let (class, text, can_retry) = match feed() {
         FeedState::Reconnecting { attempt, reason } => (
             BANNER_WARNING,
-            format!("Live connection lost ({reason}), reconnecting, attempt {attempt}. Nothing is missed: the stream resumes after the last event."),
+            format!("Lost the connection to the API ({reason}). The run keeps going on the server, reconnecting, attempt {attempt}. Nothing is missed: the stream resumes after the last event."),
             false,
         ),
         FeedState::Polling => (
@@ -254,385 +265,6 @@ fn FeedBanner(feed: Signal<FeedState>, restart: Signal<u32>) -> Element {
     }
 }
 
-// Headline numbers of a stored result, the same as the run detail page
-#[component]
-fn FinalTiles(result: BenchmarkResult) -> Element {
-    let metrics = &result.metrics;
-
-    let throughput = metrics.http_latency.as_ref().map_or_else(
-        || MISSING.to_string(),
-        |latency| format_per_second(latency.requests_per_second),
-    );
-    let p95 = metrics
-        .http_latency
-        .as_ref()
-        .and_then(|latency| latency.p95_ms)
-        .map_or_else(|| MISSING.to_string(), format_latency_ms);
-    let memory = metrics.memory.as_ref().map_or_else(
-        || MISSING.to_string(),
-        |memory| format_bytes(memory.peak.rss_bytes as f64),
-    );
-    let cpu = metrics.cpu.as_ref().map_or_else(
-        || MISSING.to_string(),
-        |cpu| format_percent(cpu.average_percent),
-    );
-    let startup = metrics
-        .startup_time
-        .duration_ms
-        .map_or_else(|| MISSING.to_string(), |ms| format_duration_ms(ms as f64));
-    let build = metrics
-        .build_time
-        .duration_ms
-        .map_or_else(|| MISSING.to_string(), |ms| format_duration_ms(ms as f64));
-
-    rsx! {
-        div { class: "grid grid-cols-2 gap-(--space-3) md:grid-cols-3 xl:grid-cols-6",
-            StatTile { label: "Throughput", value: throughput }
-            StatTile { label: "p95 latency", value: p95 }
-            StatTile { label: "Peak memory", value: memory }
-            StatTile { label: "CPU average", value: cpu }
-            StatTile { label: "Startup", value: startup }
-            StatTile { label: "Build", value: build }
-        }
-    }
-}
-
-// The end of the run: the stored result with a button to open it, or the reason it failed.
-// There is no automatic redirect, the final numbers stay on screen until the user moves on.
-#[component]
-fn Outcome(state: Signal<LiveState>) -> Element {
-    let secondary = button_class(ButtonVariant::Secondary);
-    let primary = button_class(ButtonVariant::Primary);
-    let nav = use_navigator();
-
-    let (terminal, run_id, recovered) = {
-        let state = state.read();
-
-        (
-            state.terminal().cloned(),
-            state.run_id().to_string(),
-            state.is_recovered(),
-        )
-    };
-
-    match terminal {
-        None => rsx! {},
-        Some(Terminal::Cancelled { stage }) => {
-            let detail = stage
-                .as_deref()
-                .and_then(Stage::from_key)
-                .map(|stage| format!("Stopped during the {} step.", stage.label().to_lowercase()));
-
-            rsx! {
-                Card {
-                    CardHeader {
-                        title: "Benchmark cancelled",
-                        subtitle: "The run was stopped on request and its target was stopped too. Nothing was stored.",
-                    }
-                    div { class: "flex flex-col gap-(--space-3) p-(--space-4)",
-                        if let Some(detail) = detail {
-                            p { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)", "{detail}" }
-                        }
-                        div { class: "flex flex-wrap items-center gap-(--space-2)",
-                            Link { to: Route::Submission {}, class: "{primary}", "Run another benchmark" }
-                            Link { to: Route::History {}, class: "{secondary}", "All runs" }
-                        }
-                    }
-                }
-            }
-        }
-        Some(Terminal::Completed(result)) => {
-            let short = short_id(&run_id);
-            let subtitle = if recovered {
-                "The live record had expired, this is the stored result."
-            } else {
-                "The result is stored and appears in the run history."
-            };
-
-            rsx! {
-                Card {
-                    CardHeader { title: "Benchmark completed", subtitle }
-                    div { class: "flex flex-col gap-(--space-4) p-(--space-4)",
-                        if let Some(result) = result {
-                            FinalTiles { result: *result }
-                        }
-                        div { class: "flex flex-wrap items-center gap-(--space-2)",
-                            Link {
-                                to: Route::RunDetail {
-                                    run_id: run_id.clone(),
-                                },
-                                class: "{primary}",
-                                "View run {short}"
-                            }
-                            Link { to: Route::Submission {}, class: "{secondary}", "Run another benchmark" }
-                        }
-                    }
-                }
-            }
-        }
-        Some(Terminal::Failed {
-            code,
-            message,
-            stage,
-        }) => {
-            let mut detail = vec!["The result was not stored.".to_string()];
-
-            if let Some(stage) = stage {
-                detail.insert(0, format!("Stopped in the {stage} step."));
-            }
-
-            if let Some(code) = code {
-                detail.push(code);
-            }
-
-            rsx! {
-                ErrorState {
-                    title: "The benchmark failed",
-                    message,
-                    detail: detail.join(" "),
-                    on_retry: move |_| {
-                        let _ = nav.push(Route::Submission {});
-                    },
-                }
-            }
-        }
-    }
-}
-
-fn cpu_text(sample: &SamplePoint) -> (String, String) {
-    let value = sample
-        .cpu_interval
-        .or(sample.cpu_average)
-        .map_or_else(|| MISSING.to_string(), format_percent);
-
-    let hint = match (sample.cpu_average, sample.cpu_peak) {
-        (Some(average), Some(peak)) => {
-            format!(
-                "average {} · peak {}",
-                format_percent(average),
-                format_percent(peak)
-            )
-        }
-        (Some(average), None) => format!("average {}", format_percent(average)),
-        _ => String::new(),
-    };
-
-    (value, hint)
-}
-
-// The latest measurements of the running workload, nothing is shown before a sample exists
-#[component]
-fn LiveTiles(state: Signal<LiveState>) -> Element {
-    let Some(sample) = state.read().latest_sample().cloned() else {
-        return rsx! {};
-    };
-
-    let memory = sample
-        .rss_bytes
-        .map_or_else(|| MISSING.to_string(), |bytes| format_bytes(bytes as f64));
-    let memory_hint = sample
-        .peak_rss_bytes
-        .map(|bytes| format!("peak {}", format_bytes(bytes as f64)))
-        .unwrap_or_default();
-    let (cpu, cpu_hint) = cpu_text(&sample);
-    let throughput = format_per_second(sample.requests_per_second);
-    let completed = format_number(sample.completed as f64, 0);
-    let failed_hint = if sample.failed > 0 {
-        format!("{} failed", format_number(sample.failed as f64, 0))
-    } else {
-        "none failed".to_string()
-    };
-    let workload_time = format_duration_ms(sample.elapsed_ms as f64);
-    let progress = match &sample.progress {
-        Progress::Requests { .. } => String::new(),
-        Progress::Duration { total_ms, .. } => {
-            format!("of {}", format_duration_ms(*total_ms as f64))
-        }
-    };
-
-    rsx! {
-        div {
-            class: "grid grid-cols-2 gap-(--space-3) md:grid-cols-3 xl:grid-cols-5",
-            "aria-label": "Live measurements",
-            StatTile { label: "Memory (RSS)", value: memory, hint: memory_hint }
-            StatTile { label: "CPU", value: cpu, hint: cpu_hint }
-            StatTile { label: "Throughput", value: throughput, hint: "running average" }
-            StatTile { label: "Requests done", value: completed, hint: failed_hint }
-            StatTile { label: "Workload time", value: workload_time, hint: progress }
-        }
-    }
-}
-
-// Live charts of the last minute of samples
-#[component]
-fn LiveCharts(state: Signal<LiveState>) -> Element {
-    let (memory, cpu, throughput, windowed, count) = {
-        let state = state.read();
-
-        (
-            state.chart_series(|sample| sample.rss_bytes.map(|bytes| bytes as f64)),
-            state.chart_series(|sample| sample.cpu_interval),
-            state.chart_series(|sample| Some(sample.requests_per_second)),
-            state.chart_is_windowed(),
-            state.samples().len(),
-        )
-    };
-
-    if count == 0 {
-        return rsx! {};
-    }
-
-    let subtitle = if windowed {
-        "The most recent minute of samples, one every 500 ms."
-    } else {
-        "Samples since the workload started, one every 500 ms."
-    };
-
-    rsx! {
-        div { class: "grid gap-(--space-4) lg:grid-cols-3",
-            Card {
-                CardHeader { title: "Memory (RSS)", subtitle }
-                div { class: "p-(--space-4)",
-                    TrendChart {
-                        title: "Memory (RSS)",
-                        points: memory,
-                        format: ValueFormat::Bytes,
-                        tone: ChartTone::Cyan,
-                    }
-                }
-            }
-            Card {
-                CardHeader { title: "CPU", subtitle }
-                div { class: "p-(--space-4)",
-                    TrendChart {
-                        title: "CPU",
-                        points: cpu,
-                        format: ValueFormat::Percent,
-                        tone: ChartTone::Amber,
-                    }
-                }
-            }
-            Card {
-                CardHeader { title: "Throughput", subtitle }
-                div { class: "p-(--space-4)",
-                    TrendChart {
-                        title: "Throughput",
-                        points: throughput,
-                        format: ValueFormat::PerSecond,
-                        tone: ChartTone::Blue,
-                    }
-                }
-            }
-        }
-    }
-}
-
-// The workspace modes of the run: where the current one is with its memory and CPU, and a line
-// chart of the readings of every mode. The charts stay after the run ends, the stored result
-// only keeps the summary numbers.
-#[component]
-fn WorkspaceLiveSection(state: Signal<LiveState>) -> Element {
-    let (modes, running) = {
-        let state = state.read();
-
-        (state.workspace_modes(), !state.is_terminal())
-    };
-
-    let Some(live) = modes.last().cloned() else {
-        return rsx! {};
-    };
-
-    let latest = live.points.last();
-
-    let now = format!("{} · {}", live.workspace, mode_title(&live.mode));
-    let phase = match live.phase.as_str() {
-        "started" => "Building and starting, nothing to sample yet".to_string(),
-        "sampling" => "Sampling memory and CPU".to_string(),
-        _ => format!(
-            "Finished · {}",
-            humanize_code(live.status.as_deref().unwrap_or("done"))
-        ),
-    };
-    let memory_now = latest
-        .and_then(|point| point.rss_bytes)
-        .map_or_else(|| MISSING.to_string(), |bytes| format_bytes(bytes as f64));
-    let memory_hint = latest
-        .and_then(|point| point.peak_rss_bytes)
-        .map(|bytes| format!("peak {}", format_bytes(bytes as f64)))
-        .unwrap_or_default();
-    let cpu_now = latest
-        .and_then(|point| point.cpu_interval.or(point.cpu_average))
-        .map_or_else(|| MISSING.to_string(), format_percent);
-    let cpu_hint = match latest.and_then(|point| point.cpu_average.zip(point.cpu_peak)) {
-        Some((average, peak)) => format!(
-            "average {} · peak {}",
-            format_percent(average),
-            format_percent(peak)
-        ),
-        None => String::new(),
-    };
-    let sampled = latest.map_or_else(
-        || MISSING.to_string(),
-        |point| format_duration_ms(point.elapsed_ms as f64),
-    );
-
-    // One pair of charts per mode that has readings
-    let charts: Vec<(String, Vec<SeriesPoint>, Vec<SeriesPoint>)> = modes
-        .iter()
-        .filter(|mode| !mode.points.is_empty())
-        .map(|mode| {
-            (
-                format!("{} · {}", mode.workspace, mode_title(&mode.mode)),
-                workspace_series(mode, |point| point.rss_bytes.map(|bytes| bytes as f64)),
-                workspace_series(mode, |point| point.cpu_interval),
-            )
-        })
-        .collect();
-
-    let subtitle = "Readings while the mode was sampled, one every 500 ms.";
-
-    rsx! {
-        div { class: "flex flex-col gap-(--space-3)",
-            if running {
-                div {
-                    class: "grid grid-cols-2 gap-(--space-3) md:grid-cols-4",
-                    "aria-label": "Live workspace measurements",
-                    StatTile { label: "Workspace now", value: now, hint: phase }
-                    StatTile { label: "Memory (RSS)", value: memory_now, hint: memory_hint }
-                    StatTile { label: "CPU", value: cpu_now, hint: cpu_hint }
-                    StatTile { label: "Sampled for", value: sampled }
-                }
-            }
-            for (title , memory , cpu) in charts {
-                div { key: "{title}", class: "grid gap-(--space-4) lg:grid-cols-2",
-                    Card {
-                        CardHeader { title: "{title} memory (RSS)", subtitle }
-                        div { class: "p-(--space-4)",
-                            TrendChart {
-                                title: "{title} memory",
-                                points: memory,
-                                format: ValueFormat::Bytes,
-                                tone: ChartTone::Cyan,
-                            }
-                        }
-                    }
-                    Card {
-                        CardHeader { title: "{title} CPU", subtitle }
-                        div { class: "p-(--space-4)",
-                            TrendChart {
-                                title: "{title} CPU",
-                                points: cpu,
-                                format: ValueFormat::Percent,
-                                tone: ChartTone::Amber,
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 // The final numbers of every workspace mode, once the run is stored
 #[component]
 fn WorkspaceResults(state: Signal<LiveState>) -> Element {
@@ -646,27 +278,50 @@ fn WorkspaceResults(state: Signal<LiveState>) -> Element {
     }
 }
 
-// What happened, newest first so it never needs scrolling to follow
+// What happened, oldest first. The list stays pinned to its bottom, so the newest line is always
+// in view without scrolling.
 #[component]
 fn EventLog(state: Signal<LiveState>) -> Element {
-    let lines: Vec<(String, String, &'static str)> = state
-        .read()
-        .log()
-        .iter()
-        .rev()
-        .map(|line| {
-            (
-                format!("+{}", format_duration_ms(line.t_ms as f64)),
-                line.text.clone(),
-                line.tone.text_class(),
-            )
-        })
-        .collect();
+    let toasts = use_toasts();
+    let (lines, copy) = {
+        let snapshot = state.read();
+
+        // Newest first in the page, the reversed column shows it last
+        let lines: Vec<(String, String, &'static str)> = snapshot
+            .log()
+            .iter()
+            .rev()
+            .map(|line| {
+                (
+                    format!("+{}", format_duration_ms(line.t_ms as f64)),
+                    line.text.clone(),
+                    line.tone.text_class(),
+                )
+            })
+            .collect();
+
+        (lines, log_text(snapshot.log()))
+    };
 
     rsx! {
         Card {
-            CardHeader { title: "Events", subtitle: "Newest first, times are since the run was accepted." }
-            ol { class: "flex max-h-72 flex-col gap-(--space-1) overflow-y-auto px-(--space-4) py-(--space-3)",
+            CardHeader {
+                title: "Events",
+                subtitle: "Oldest first, times are since the run was accepted.",
+                trailing: Some(rsx! {
+                    button {
+                        r#type: "button",
+                        class: "inline-flex cursor-pointer items-center gap-(--space-2) text-(length:--fs-sm) text-(color:--clr-text-muted) transition-colors hover:text-(color:--clr-accent)",
+                        onclick: move |_| {
+                            copy_text(&copy);
+                            toasts.show("Copied the event log");
+                        },
+                        Icon { kind: IconKind::Copy, class: "size-(--icon-sm)" }
+                        "Copy log"
+                    }
+                }),
+            }
+            ol { class: "flex max-h-72 flex-col-reverse gap-(--space-1) overflow-y-auto px-(--space-4) py-(--space-3)",
                 for (index , (time , text , tone_class)) in lines.into_iter().enumerate() {
                     li {
                         key: "{index}",

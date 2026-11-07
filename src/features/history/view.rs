@@ -1,21 +1,24 @@
 use dioxus::prelude::*;
 
 use super::{
-    api::{fetch_page, HistoryFilters, PAGE_SIZE, RUNTIMES},
-    models::RunSummary,
+    api::{fetch_page, HistoryFilters, PAGE_SIZE},
+    columns::{best_values, Column, ColumnPrefs},
+    filters::{is_active, FilterRow},
+    models::{Counts, RunSummary},
     run_row::RunRow,
     selection,
 };
 use crate::{
     app::Route,
     components::{
-        button_class, ButtonVariant, Card, CardHeader, EmptyState, FormField, Icon, IconKind,
-        LoadingPanel, PageHeader, INPUT_CLASS,
+        button_class, ButtonVariant, EmptyState, GhostRows, Icon, IconKind, PageHeader,
+        RowsSkeleton,
     },
     features::connection::{ApiError, ApiErrorPanel},
+    format::{format_number, path_tail},
 };
 
-const HEADER_CELL: &str = "px-(--space-3) py-(--space-2) text-(length:--fs-2xs) font-(weight:--fw-medium) uppercase tracking-wider whitespace-nowrap text-(color:--clr-text-faint)";
+const HEADER_CELL: &str = "px-(--space-3) py-(--space-2) text-(length:--fs-xs) font-(weight:--fw-medium) whitespace-nowrap text-(color:--clr-text-muted)";
 
 #[derive(Debug, Clone, PartialEq)]
 enum Phase {
@@ -25,17 +28,48 @@ enum Phase {
     Failed(ApiError),
 }
 
-// Paginated run history with filters and a two-run selection for comparisons
+// Chips that name every active filter, shown when nothing matches
+fn active_chips(filters: &HistoryFilters) -> Vec<String> {
+    let mut chips = Vec::new();
+
+    if !filters.runtime.is_empty() {
+        chips.push(format!("Runtime {}", filters.runtime));
+    }
+    if !filters.status.is_empty() {
+        chips.push(format!("Status {}", filters.status));
+    }
+    if !filters.target_path.trim().is_empty() {
+        chips.push(format!("Project {}", path_tail(filters.target_path.trim())));
+    }
+    if !filters.search.trim().is_empty() {
+        chips.push(format!("Search {}", filters.search.trim()));
+    }
+
+    chips
+}
+
+// Paginated run history with filters, a Columns menu and a two-run selection for comparisons.
+// The filters come from the address (`/runs?target_path=&runtime=&status=&search=`).
 #[component]
-pub fn History() -> Element {
-    let mut applied = use_signal(HistoryFilters::default);
-    let mut runtime_draft = use_signal(String::new);
-    let mut path_draft = use_signal(String::new);
+pub fn History(target_path: String, runtime: String, status: String, search: String) -> Element {
+    let mut applied = use_signal(|| HistoryFilters {
+        runtime: runtime.clone(),
+        target_path: target_path.clone(),
+        status: status.clone(),
+        search: search.clone(),
+    });
+    let mut search_draft = use_signal(|| search.clone());
     let mut items = use_signal(Vec::<RunSummary>::new);
+    let mut counts = use_signal(Counts::default);
     let mut next_cursor = use_signal(|| None::<String>);
     let mut phase = use_signal(|| Phase::Loading);
+    let mut more_failed = use_signal(|| false);
     let mut generation = use_signal(|| 0u64);
     let mut selected = use_signal(Vec::<String>::new);
+    let prefs = use_signal(ColumnPrefs::load);
+
+    // Remembers the column choice in this browser
+    use_effect(move || prefs.read().save());
 
     // Loads the first page, or the next one when `reset` is false
     let load = move |reset: bool| {
@@ -56,6 +90,7 @@ pub fn History() -> Element {
                 next_cursor.peek().clone()
             };
 
+            more_failed.set(false);
             phase.set(if reset {
                 Phase::Loading
             } else {
@@ -72,16 +107,36 @@ pub fn History() -> Element {
                 Ok(page) => {
                     if reset {
                         items.set(page.items);
+                        counts.set(page.counts);
                     } else {
                         items.write().extend(page.items);
                     }
                     next_cursor.set(page.pagination.next_cursor);
                     phase.set(Phase::Ready);
                 }
-                Err(error) => phase.set(Phase::Failed(error)),
+                Err(error) if reset => phase.set(Phase::Failed(error)),
+                Err(_) => {
+                    more_failed.set(true);
+                    phase.set(Phase::Ready);
+                }
             }
         });
     };
+
+    // A new address (for example the top bar search) replaces the applied filters
+    use_effect(use_reactive!(|(target_path, runtime, status, search)| {
+        let from_address = HistoryFilters {
+            runtime,
+            target_path,
+            status,
+            search,
+        };
+
+        if *applied.peek() != from_address {
+            search_draft.set(from_address.search.clone());
+            applied.set(from_address);
+        }
+    }));
 
     // Reloads from the first page whenever the applied filters change
     use_effect(move || {
@@ -91,10 +146,12 @@ pub fn History() -> Element {
 
     let current_phase = phase();
     let run_count = items.read().len();
+    let total = counts.read().total;
     let selected_ids = selected();
     let can_compare = selected_ids.len() == selection::MAX_SELECTED;
     let primary = button_class(ButtonVariant::Primary);
     let secondary = button_class(ButtonVariant::Secondary);
+    let filters_active = is_active(&applied.read());
 
     let compare_target = if can_compare {
         Some(Route::Comparisons {
@@ -105,69 +162,115 @@ pub fn History() -> Element {
         None
     };
 
-    let loading_more = matches!(current_phase, Phase::LoadingMore);
-    let bar_border = if can_compare {
-        "border-(color:--clr-accent)"
-    } else {
-        "border-(color:--clr-border)"
+    let mut clear_filters = move || {
+        search_draft.set(String::new());
+        applied.set(HistoryFilters::default());
     };
+
+    let loading_more = matches!(current_phase, Phase::LoadingMore);
 
     let body: Element = match current_phase.clone() {
         Phase::Loading => rsx! {
-            LoadingPanel { label: "Loading run history" }
+            RowsSkeleton {}
         },
         Phase::Failed(error) => rsx! {
             ApiErrorPanel { error, on_retry: move |_| load(true) }
         },
+        Phase::Ready | Phase::LoadingMore if run_count == 0 && filters_active => {
+            let chips = active_chips(&applied.read());
+
+            rsx! {
+                EmptyState {
+                    title: "No runs match these filters",
+                    description: "Try another runtime or a shorter path.",
+                    for chip in chips {
+                        span {
+                            key: "{chip}",
+                            class: "rounded-(--round-full) bg-(--clr-surface-hover) px-(--space-3) py-(--space-1) text-(length:--fs-xs) text-(color:--clr-text-muted)",
+                            "{chip}"
+                        }
+                    }
+                    button {
+                        r#type: "button",
+                        class: "{primary}",
+                        onclick: move |_| clear_filters(),
+                        "Clear filters"
+                    }
+                }
+            }
+        }
         Phase::Ready | Phase::LoadingMore if run_count == 0 => rsx! {
             EmptyState {
-                title: "No runs match",
-                description: "Nothing has been recorded for these filters yet. Clear the filters or run a new benchmark.",
-                Link { to: Route::Submission {}, class: "{primary}", "New benchmark" }
+                title: "No runs yet",
+                description: "Start a benchmark and its result will show up here.",
+                ghost: Some(rsx! {
+                    GhostRows {}
+                }),
+                Link { to: Route::new_benchmark(), class: "{primary}", "Start a benchmark" }
             }
         },
         _ => {
             let has_more = next_cursor.read().is_some();
-            let rows: Vec<(String, RunSummary, bool)> = items
-                .read()
+            let shown = prefs.read().shown();
+            let runs: Vec<RunSummary> = items.read().clone();
+            let best = best_values(&runs, &shown);
+            let highest_throughput = runs
                 .iter()
-                .map(|run| {
-                    (
-                        run.run_id.clone(),
-                        run.clone(),
-                        selected_ids.contains(&run.run_id),
-                    )
+                .filter_map(|run| Column::Throughput.measured(run))
+                .fold(0.0_f64, f64::max);
+            let both_picked = selected_ids.len() == selection::MAX_SELECTED;
+            let rows: Vec<(usize, RunSummary, Option<selection::Role>, bool)> = runs
+                .into_iter()
+                .enumerate()
+                .map(|(index, run)| {
+                    let role = selection::role_of(&selected_ids, &run.run_id);
+                    let dimmed = both_picked && role.is_none();
+
+                    (index, run, role, dimmed)
                 })
                 .collect();
+            let headers: Vec<(Column, String)> = shown
+                .iter()
+                .map(|column| {
+                    let align = if column.is_numeric() {
+                        "text-right"
+                    } else {
+                        "text-left"
+                    };
+
+                    (*column, align.to_string())
+                })
+                .collect();
+            let showing = format_number(run_count as f64, 0);
+            let of_total = format_number(total as f64, 0);
 
             rsx! {
-                Card {
-                    CardHeader {
-                        title: "Runs",
-                        subtitle: "Newest first. Select two runs to compare them.",
-                    }
+                div { class: "rounded-(--round-lg) border border-(color:--clr-border) bg-(--clr-surface) p-1.5",
                     div { class: "overflow-x-auto",
-                        table { class: "w-full min-w-(--table-min-width) border-collapse text-left text-(length:--fs-sm)",
-                            thead { class: "bg-(--clr-surface-raised)",
+                        table { class: "w-full min-w-(--table-min-width) border-separate border-spacing-y-0.5 text-left text-(length:--fs-sm)",
+                            thead {
                                 tr {
-                                    th { class: "{HEADER_CELL}", span { class: "sr-only", "Select" } }
+                                    th { class: "w-10 {HEADER_CELL}", span { class: "sr-only", "Select" } }
                                     th { class: "{HEADER_CELL}", "Run" }
-                                    th { class: "{HEADER_CELL}", "Target" }
-                                    th { class: "{HEADER_CELL}", "Runtime" }
-                                    th { class: "{HEADER_CELL} text-right", "Build" }
-                                    th { class: "{HEADER_CELL} text-right", "Startup" }
-                                    th { class: "{HEADER_CELL} text-right", "Peak memory" }
-                                    th { class: "{HEADER_CELL} text-right", "CPU avg" }
-                                    th { class: "{HEADER_CELL} text-right", "Throughput" }
-                                    th { class: "{HEADER_CELL} text-right", "p95" }
+                                    for (column , align) in headers {
+                                        th { key: "{column.label()}", class: "{HEADER_CELL} {align}",
+                                            "{column.label()}"
+                                        }
+                                    }
+                                    th { class: "w-10 {HEADER_CELL}", span { class: "sr-only", "Open" } }
                                 }
                             }
                             tbody {
-                                for (row_key , run , is_selected) in rows {
+                                for (index , run , role , dimmed) in rows {
                                     RunRow {
-                                        key: "{row_key}",
+                                        key: "{run.run_id}",
                                         run,
-                                        selected: is_selected,
+                                        columns: shown.clone(),
+                                        best: best.clone(),
+                                        highest_throughput,
+                                        role,
+                                        dimmed,
+                                        index,
                                         on_toggle: move |id: String| {
                                             selected.with_mut(|current| selection::toggle(current, id));
                                         },
@@ -176,18 +279,31 @@ pub fn History() -> Element {
                             }
                         }
                     }
-                    div { class: "flex flex-col items-center justify-between gap-(--space-3) border-t border-(color:--clr-border) px-(--space-4) py-(--space-3) sm:flex-row",
+                    div { class: "flex flex-col items-center justify-between gap-(--space-3) border-t border-(color:--clr-border) px-(--space-3) py-(--space-3) sm:flex-row",
                         span { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)",
-                            "Showing {run_count} runs"
+                            "Showing {showing} of {of_total} runs"
                         }
-                        if has_more {
+                        if more_failed() {
+                            div { class: "flex items-center gap-(--space-3)",
+                                span { class: "text-(length:--fs-sm) text-(color:--clr-danger-text)",
+                                    "Couldn't load more runs"
+                                }
+                                button {
+                                    r#type: "button",
+                                    class: "{secondary}",
+                                    onclick: move |_| load(false),
+                                    "Try again"
+                                }
+                            }
+                        } else if has_more {
                             button {
                                 r#type: "button",
                                 class: "{secondary}",
                                 disabled: loading_more,
                                 onclick: move |_| load(false),
                                 if loading_more {
-                                    "Loading…"
+                                    Icon { kind: IconKind::Refresh, class: "size-(--icon-sm) animate-spin" }
+                                    "Loading"
                                 } else {
                                     "Load more"
                                 }
@@ -199,103 +315,81 @@ pub fn History() -> Element {
         }
     };
 
+    let selected_count = selected_ids.len();
+    let selection_text = if selected_count == 1 {
+        "1 run selected".to_string()
+    } else {
+        format!("{selected_count} runs selected")
+    };
+
     rsx! {
         document::Title { "Runs · Benchmark" }
         PageHeader {
-            title: "Run history",
-            description: "Every stored benchmark run with its headline measurements.",
-            Link { to: Route::Submission {}, class: "{primary}",
-                Icon { kind: IconKind::Play, class: "size-(--icon-sm)" }
-                "New benchmark"
-            }
+            title: "Runs",
+            description: "Every stored benchmark run, newest first. Click two rows to compare them.",
+            span {}
         }
         div { class: "flex flex-col gap-(--space-4)",
-            Card {
-                form {
-                    class: "flex flex-col gap-(--space-3) p-(--space-3) md:flex-row md:items-end",
-                    onsubmit: move |event| {
-                        event.prevent_default();
-                        applied
-                            .set(HistoryFilters {
-                                runtime: runtime_draft(),
-                                target_path: path_draft(),
-                            });
-                    },
-                    div { class: "md:w-56",
-                        FormField { label: "Runtime",
-                            select {
-                                class: "{INPUT_CLASS}",
-                                onchange: move |event| runtime_draft.set(event.value()),
-                                option { value: "", selected: runtime_draft().is_empty(), "All runtimes" }
-                                for (code , name) in RUNTIMES {
-                                    option { value: "{code}", selected: runtime_draft() == code, "{name}" }
-                                }
-                            }
-                        }
-                    }
-                    div { class: "min-w-0 md:flex-1",
-                        FormField {
-                            label: "Target path",
-                            hint: "Exact match on the stored path",
-                            input {
-                                r#type: "text",
-                                class: "{INPUT_CLASS}",
-                                placeholder: "/home/me/projects/my-api",
-                                value: "{path_draft}",
-                                oninput: move |event| path_draft.set(event.value()),
-                            }
-                        }
-                    }
-                    div { class: "flex gap-(--space-2) md:pb-5",
-                        button { r#type: "submit", class: "{primary}", "Apply" }
-                        button {
-                            r#type: "button",
-                            class: "{secondary}",
-                            onclick: move |_| {
-                                runtime_draft.set(String::new());
-                                path_draft.set(String::new());
-                                applied.set(HistoryFilters::default());
-                            },
-                            "Reset"
-                        }
-                    }
-                }
+            FilterRow {
+                applied,
+                search_draft,
+                counts: counts(),
+                prefs,
+                on_clear: move |_| clear_filters(),
             }
-            div { class: "flex flex-col gap-(--space-3) rounded-(--round-lg) border bg-(--clr-surface) px-(--space-3) py-(--space-2) sm:flex-row sm:items-center sm:justify-between {bar_border}",
-                span { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)",
-                    if selected_ids.is_empty() {
-                        "Select two runs to compare. The first one you pick is the baseline."
-                    } else if can_compare {
-                        "Two runs selected. Ready to compare."
-                    } else {
-                        "One run selected. Pick one more."
-                    }
-                }
-                div { class: "flex gap-(--space-2)",
-                    if let Some(route) = compare_target {
-                        Link { to: route, class: "{primary}",
-                            Icon { kind: IconKind::Compare, class: "size-(--icon-sm)" }
-                            "Compare selected"
-                        }
-                    } else {
+            {body}
+            if selected_count > 0 {
+                div { class: "fade-up sticky bottom-4 z-10 flex items-center justify-between gap-(--space-3) rounded-(--round-lg) bg-(--clr-ink) px-(--space-4) py-(--space-3) text-(color:--clr-ink-contrast) shadow-(--shadow-popover)",
+                    span { class: "text-(length:--fs-sm) font-(weight:--fw-medium)", "{selection_text}" }
+                    div { class: "flex items-center gap-(--space-2)",
                         button {
                             r#type: "button",
-                            class: "{primary}",
-                            disabled: true,
-                            "Compare selected"
-                        }
-                    }
-                    if !selected_ids.is_empty() {
-                        button {
-                            r#type: "button",
-                            class: "{secondary}",
+                            class: "cursor-pointer rounded-(--round-md) px-(--space-3) py-(--space-1) text-(length:--fs-sm) transition-colors hover:bg-white/10",
                             onclick: move |_| selected.set(Vec::new()),
                             "Clear"
                         }
+                        if let Some(route) = compare_target {
+                            Link { to: route, class: "{primary}",
+                                Icon { kind: IconKind::Compare, class: "size-(--icon-sm)" }
+                                "Compare"
+                            }
+                        } else {
+                            button {
+                                r#type: "button",
+                                class: "{primary}",
+                                disabled: true,
+                                "Compare"
+                            }
+                        }
                     }
                 }
             }
-            {body}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn names_every_active_filter() {
+        let filters = HistoryFilters {
+            runtime: "bun".to_string(),
+            target_path: "/srv/shop".to_string(),
+            status: "failed".to_string(),
+            search: " 1a2b ".to_string(),
+        };
+
+        assert_eq!(
+            active_chips(&filters),
+            [
+                "Runtime bun",
+                "Status failed",
+                "Project shop",
+                "Search 1a2b"
+            ]
+        );
+        assert!(active_chips(&HistoryFilters::default()).is_empty());
     }
 }

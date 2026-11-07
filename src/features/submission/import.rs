@@ -53,6 +53,46 @@ fn header_lines(object: &Map<String, Value>) -> String {
         .unwrap_or_default()
 }
 
+// A small request the Paste JSON dialog can fill in to show the format
+pub const SAMPLE_REQUEST: &str = r#"{
+  "path": "/home/me/projects/my-api",
+  "startup": {
+    "command": { "program": "bun", "args": ["run", "start"] },
+    "readiness": {
+      "type": "http",
+      "host": "127.0.0.1",
+      "port": 3000,
+      "path": "/health",
+      "method": "GET",
+      "expected_status": 200
+    }
+  },
+  "workload": {
+    "method": "GET",
+    "path": "/items",
+    "requests": 1000,
+    "concurrency": 10
+  }
+}"#;
+
+// The parts of a request that a pasted text carries, named as the form names them
+pub fn found_parts(input: &str) -> Vec<&'static str> {
+    let Ok(Value::Object(root)) = serde_json::from_str::<Value>(input) else {
+        return Vec::new();
+    };
+
+    [
+        ("path", "path"),
+        ("startup", "startup"),
+        ("workload", "workload"),
+        ("workspaces", "workspace"),
+    ]
+    .into_iter()
+    .filter(|(key, _)| root.get(*key).is_some_and(|value| !value.is_null()))
+    .map(|(_, name)| name)
+    .collect()
+}
+
 pub fn form_from_json(input: &str) -> Result<FormState, String> {
     let value: Value =
         serde_json::from_str(input).map_err(|error| format!("This is not valid JSON: {error}."))?;
@@ -289,5 +329,20 @@ mod tests {
         )
         .unwrap_err()
         .contains("not both"));
+    }
+
+    #[test]
+    fn the_sample_request_fills_a_valid_form() {
+        let form = form_from_json(SAMPLE_REQUEST).expect("sample parses");
+
+        assert!(validate(&form).is_ok());
+        assert_eq!(found_parts(SAMPLE_REQUEST), ["path", "startup", "workload"]);
+    }
+
+    #[test]
+    fn found_parts_ignore_null_and_broken_input() {
+        assert_eq!(found_parts(r#"{"path":"/p","workload":null}"#), ["path"]);
+        assert!(found_parts("nope").is_empty());
+        assert!(found_parts("[1]").is_empty());
     }
 }

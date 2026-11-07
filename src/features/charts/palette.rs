@@ -55,4 +55,27 @@ impl ChartTone {
             Self::Slate => "bg-(--clr-chart-neutral)",
         }
     }
+
+    // CSS custom property values for inline styles, used where a class cannot carry the color
+    pub fn color_var(self) -> &'static str {
+        match self {
+            Self::Blue => "var(--clr-chart-1)",
+            Self::Amber => "var(--clr-chart-3)",
+            Self::Cyan => "var(--clr-chart-4)",
+            Self::Violet => "var(--clr-chart-5)",
+            Self::Teal => "var(--clr-chart-6)",
+            Self::Slate => "var(--clr-chart-neutral)",
+        }
+    }
+
+    pub fn soft_var(self) -> &'static str {
+        match self {
+            Self::Blue => "var(--clr-chart-1-soft)",
+            Self::Amber => "var(--clr-chart-3-soft)",
+            Self::Cyan => "var(--clr-chart-4-soft)",
+            Self::Violet => "var(--clr-chart-5-soft)",
+            Self::Teal => "var(--clr-chart-6-soft)",
+            Self::Slate => "var(--clr-chart-neutral-soft)",
+        }
+    }
 }

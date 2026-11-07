@@ -2,8 +2,10 @@ use dioxus::prelude::*;
 
 use super::models::{ArtifactSize, Cpu, HttpLatency, Memory, StepResult};
 use crate::{
-    components::{Card, CardHeader, Definition, EmptyState, StatusBadge},
-    features::charts::{BarChart, BarGroup, BarSeries, ChartTone},
+    components::{Card, CardHeader, Definition, QuietNote, StatusBadge},
+    features::charts::{
+        ago_labels, BarChart, BarGroup, BarRow, BarSeries, ChartTone, HorizontalBars, Sparkline,
+    },
     format::{
         format_bytes, format_duration_ms, format_number, format_timestamp, ValueFormat, MISSING,
     },
@@ -23,46 +25,85 @@ fn group(label: &str, value: Option<f64>) -> BarGroup {
     }
 }
 
+// Small chart of one measurement over the last runs, nothing when fewer than two runs have it
+fn trend_graph(values: Vec<Option<f64>>, format: ValueFormat, tone: ChartTone) -> Element {
+    if values.iter().flatten().count() < 2 {
+        return rsx! {};
+    }
+
+    let labels = ago_labels(values.len());
+    let count = values.len();
+
+    rsx! {
+        div { class: "group col-span-2",
+            p { class: "mb-(--space-1) text-(length:--fs-xs) text-(color:--clr-text-faint)",
+                "Last {count} runs of this target"
+            }
+            Sparkline {
+                values,
+                labels,
+                format,
+                tone,
+                class: "h-16",
+            }
+        }
+    }
+}
+
 // Request counts and latency percentiles of the HTTP workload
 #[component]
 pub fn HttpSection(latency: Option<HttpLatency>) -> Element {
     let Some(latency) = latency else {
         return rsx! {
-            EmptyState {
-                title: "No HTTP workload",
-                description: "This run did not include a workload, so there are no latency or throughput results.",
-                span { class: "text-(length:--fs-sm) text-(color:--clr-text-faint)", "Add a workload when submitting a benchmark." }
-            }
+            QuietNote { text: "This run had no HTTP workload, so there are no latency or throughput results." }
         };
     };
 
-    let groups = vec![
-        group("min", latency.min_ms),
-        group("mean", latency.mean_ms),
-        group("p50", latency.p50_ms),
-        group("p95", latency.p95_ms),
-        group("p99", latency.p99_ms),
-        group("max", latency.max_ms),
+    let rows = vec![
+        BarRow {
+            label: "p50".to_string(),
+            value: latency.p50_ms,
+        },
+        BarRow {
+            label: "p95".to_string(),
+            value: latency.p95_ms,
+        },
+        BarRow {
+            label: "p99".to_string(),
+            value: latency.p99_ms,
+        },
+        BarRow {
+            label: "max".to_string(),
+            value: latency.max_ms,
+        },
     ];
     let partial = latency.status == "target_exited";
-    let total = format_number(latency.total_requests as f64, 0);
-    let succeeded = format_number(latency.successful_requests as f64, 0);
-    let failed = format_number(latency.failed_requests as f64, 0);
+    let counts = request_counts(
+        latency.total_requests,
+        latency.successful_requests,
+        latency.failed_requests,
+    );
+    let failed_class = if counts.failed > 0 {
+        "text-(color:--clr-danger-text)"
+    } else {
+        ""
+    };
     let duration = format_duration_ms(latency.duration_ms as f64);
     let rate = format_number(latency.requests_per_second, 1);
 
     rsx! {
         Card {
             CardHeader {
-                title: "HTTP latency",
+                title: "Latency",
                 subtitle: "Response time percentiles under the configured workload.",
             }
             div { class: "flex flex-col gap-(--space-4) p-(--space-4)",
-                dl { class: "grid grid-cols-2 gap-(--space-4) md:grid-cols-6",
+                p { class: "text-(length:--fs-sm) tabular-nums text-(color:--clr-text-muted)",
+                    "{counts.before_failed}"
+                    span { class: "{failed_class}", "{counts.failed_text}" }
+                }
+                dl { class: "grid grid-cols-2 gap-(--space-4) md:grid-cols-3",
                     Definition { label: "Status", StatusBadge { status: latency.status.clone() } }
-                    Definition { label: "Requests", "{total}" }
-                    Definition { label: "Succeeded", "{succeeded}" }
-                    Definition { label: "Failed", "{failed}" }
                     Definition { label: "Duration", "{duration}" }
                     Definition { label: "Throughput", "{rate} /s" }
                 }
@@ -71,14 +112,37 @@ pub fn HttpSection(latency: Option<HttpLatency>) -> Element {
                         "The target exited during the workload, so these numbers are partial and not a completed benchmark."
                     }
                 }
-                BarChart {
-                    title: "Latency percentiles",
-                    groups,
-                    series: single_series("Latency", ChartTone::Amber),
-                    format: ValueFormat::LatencyMs,
-                }
+                HorizontalBars { rows, format: ValueFormat::LatencyMs, tone: ChartTone::Amber }
             }
         }
+    }
+}
+
+// The line under the Latency title, split so the failed part can turn red
+#[derive(Debug, Clone, PartialEq)]
+struct RequestCounts {
+    // `10,000 requests · 9,982 ok · `
+    before_failed: String,
+    // `18 failed (0.18%)`
+    failed_text: String,
+    failed: u64,
+}
+
+fn request_counts(total: u64, ok: u64, failed: u64) -> RequestCounts {
+    let share = if total == 0 {
+        0.0
+    } else {
+        failed as f64 / total as f64 * 100.0
+    };
+
+    RequestCounts {
+        before_failed: format!(
+            "{} requests · {} ok · ",
+            format_number(total as f64, 0),
+            format_number(ok as f64, 0)
+        ),
+        failed_text: format!("{} failed ({share:.2}%)", format_number(failed as f64, 0)),
+        failed,
     }
 }
 
@@ -142,7 +206,12 @@ pub fn ResourceSection(memory: Option<Memory>, cpu: Option<Cpu>) -> Element {
 
 // Details of one lifecycle step, build or startup
 #[component]
-fn StepCard(#[props(into)] title: String, step: StepResult) -> Element {
+fn StepCard(
+    #[props(into)] title: String,
+    step: StepResult,
+    #[props(default)] trend: Vec<Option<f64>>,
+) -> Element {
+    let graph = trend_graph(trend, ValueFormat::DurationMs, ChartTone::Teal);
     let duration = step
         .duration_ms
         .map_or_else(|| MISSING.to_string(), |ms| format_duration_ms(ms as f64));
@@ -175,6 +244,7 @@ fn StepCard(#[props(into)] title: String, step: StepResult) -> Element {
         Card {
             CardHeader { title }
             dl { class: "grid grid-cols-2 gap-(--space-4) p-(--space-4)",
+                {graph}
                 Definition { label: "Status", StatusBadge { status: step.status.clone() } }
                 Definition { label: "Duration", "{duration}" }
                 if let Some(command) = command {
@@ -214,18 +284,32 @@ fn StepCard(#[props(into)] title: String, step: StepResult) -> Element {
 
 // Build and startup steps
 #[component]
-pub fn StepsSection(build_step: StepResult, startup_step: StepResult) -> Element {
+pub fn StepsSection(
+    build_step: StepResult,
+    startup_step: StepResult,
+    build_trend: Vec<Option<f64>>,
+    startup_trend: Vec<Option<f64>>,
+) -> Element {
     rsx! {
         div { class: "grid grid-cols-1 gap-(--space-4) lg:grid-cols-2",
-            StepCard { title: "Build", step: build_step }
-            StepCard { title: "Startup", step: startup_step }
+            StepCard {
+                title: "Build",
+                step: build_step,
+                trend: build_trend,
+            }
+            StepCard {
+                title: "Startup",
+                step: startup_step,
+                trend: startup_trend,
+            }
         }
     }
 }
 
 // Size and file count of the source, build and excluded artifacts
 #[component]
-pub fn ArtifactSection(artifacts: ArtifactSize) -> Element {
+pub fn ArtifactSection(artifacts: ArtifactSize, trend: Vec<Option<f64>>) -> Element {
+    let graph = trend_graph(trend, ValueFormat::Bytes, ChartTone::Blue);
     let categories = [
         ("Source", artifacts.source),
         ("Build", artifacts.build),
@@ -253,6 +337,7 @@ pub fn ArtifactSection(artifacts: ArtifactSize) -> Element {
         Card {
             CardHeader { title: "Artifact size", subtitle: "What was measured on disk for the target." }
             div { class: "grid grid-cols-1 gap-(--space-5) p-(--space-4) lg:grid-cols-2",
+                div { class: "col-span-full empty:hidden", {graph} }
                 div { class: "overflow-x-auto",
                     table { class: "w-full text-left text-(length:--fs-sm)",
                         thead {
@@ -291,4 +376,23 @@ struct ArtifactRow {
     size: String,
     exact: String,
     files: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn counts_failed_requests_with_their_share() {
+        let counts = request_counts(10_000, 9_982, 18);
+
+        assert_eq!(counts.before_failed, "10,000 requests · 9,982 ok · ");
+        assert_eq!(counts.failed_text, "18 failed (0.18%)");
+        assert_eq!(counts.failed, 18);
+    }
+
+    #[test]
+    fn a_run_without_requests_has_no_share() {
+        assert_eq!(request_counts(0, 0, 0).failed_text, "0 failed (0.00%)");
+    }
 }

@@ -1,16 +1,19 @@
 use dioxus::prelude::*;
 
 use super::{
-    api::fetch_comparison, config_notice::ConfigurationNotice, models::ComparisonData,
-    picker::RunPicker, results::ComparisonResults,
+    api::fetch_comparison,
+    config_notice::ConfigurationNotice,
+    hero::Hero,
+    kpi::KpiStrip,
+    models::ComparisonData,
+    results::ComparisonResults,
+    selectors::RunSelectors,
+    skeleton::{CompareSkeleton, PickersSkeleton},
 };
 use crate::{
     app::Route,
-    components::{
-        button_class, ButtonVariant, Card, EmptyState, Icon, IconKind, LoadingPanel, PageHeader,
-    },
+    components::{button_class, ButtonVariant, EmptyState, GhostSelectors, PageHeader},
     features::{
-        charts::ChartTone,
         connection::{ApiError, ApiErrorPanel},
         history::fetch_recent_runs,
     },
@@ -19,8 +22,6 @@ use crate::{
 // Compares two stored runs, the selection lives in the URL so a comparison can be shared
 #[component]
 pub fn Comparisons(baseline: String, comparison: String) -> Element {
-    let nav = use_navigator();
-
     let mut runs = use_resource(move || async move { fetch_recent_runs().await });
     let reactive_baseline = baseline.clone();
     let reactive_comparison = comparison.clone();
@@ -42,74 +43,29 @@ pub fn Comparisons(baseline: String, comparison: String) -> Element {
     ));
 
     let secondary = button_class(ButtonVariant::Secondary);
+    let primary = button_class(ButtonVariant::Primary);
     let same_selection =
         !baseline.is_empty() && baseline.trim().eq_ignore_ascii_case(comparison.trim());
 
+    let stored = match runs() {
+        Some(Ok(ref page)) => Some(page.items.len()),
+        _ => None,
+    };
+
     let pickers: Element = match runs() {
         None => rsx! {
-            LoadingPanel { label: "Loading runs" }
+            PickersSkeleton {}
         },
         Some(Err(error)) => rsx! {
             ApiErrorPanel { error, on_retry: move |_| runs.restart() }
         },
-        Some(Ok(page)) => {
-            let other_for_baseline = comparison.clone();
-            let other_for_comparison = baseline.clone();
-            let swap_baseline = comparison.clone();
-            let swap_comparison = baseline.clone();
-
-            rsx! {
-                Card {
-                    div { class: "flex flex-col gap-(--space-3) p-(--space-3) md:flex-row md:items-end",
-                        div { class: "min-w-0 md:flex-1",
-                            RunPicker {
-                                label: "Baseline",
-                                tone: ChartTone::Slate,
-                                value: baseline.clone(),
-                                runs: page.items.clone(),
-                                on_change: move |id: String| {
-                                    let _ = nav
-                                        .push(Route::Comparisons {
-                                            baseline: id,
-                                            comparison: other_for_baseline.clone(),
-                                        });
-                                },
-                            }
-                        }
-                        button {
-                            r#type: "button",
-                            class: "{secondary}",
-                            "aria-label": "Swap baseline and comparison",
-                            title: "Swap baseline and comparison",
-                            onclick: move |_| {
-                                let _ = nav
-                                    .push(Route::Comparisons {
-                                        baseline: swap_baseline.clone(),
-                                        comparison: swap_comparison.clone(),
-                                    });
-                            },
-                            Icon { kind: IconKind::Swap, class: "size-(--icon-sm)" }
-                            "Swap"
-                        }
-                        div { class: "min-w-0 md:flex-1",
-                            RunPicker {
-                                label: "Comparison",
-                                tone: ChartTone::Blue,
-                                value: comparison.clone(),
-                                runs: page.items.clone(),
-                                on_change: move |id: String| {
-                                    let _ = nav
-                                        .push(Route::Comparisons {
-                                            baseline: other_for_comparison.clone(),
-                                            comparison: id,
-                                        });
-                                },
-                            }
-                        }
-                    }
-                }
+        Some(Ok(page)) => rsx! {
+            RunSelectors {
+                runs: page.items,
+                baseline: baseline.clone(),
+                comparison: comparison.clone(),
             }
-        }
+        },
     };
 
     let body: Element = if same_selection {
@@ -123,17 +79,32 @@ pub fn Comparisons(baseline: String, comparison: String) -> Element {
     } else {
         match result() {
             None => rsx! {
-                LoadingPanel { label: "Comparing runs" }
+                CompareSkeleton {}
             },
             Some(Err(error)) => rsx! {
                 ApiErrorPanel { error, on_retry: move |_| result.restart() }
             },
-            Some(Ok(None)) => rsx! {
-                EmptyState {
-                    title: "Choose two runs",
-                    description: "The first run is the baseline, the second is compared against it.",
-                    span { class: "text-(length:--fs-sm) text-(color:--clr-text-faint)", "Select both above, or pick runs from the history." }
-                }
+            Some(Ok(None)) => match stored {
+                Some(count) if count < 2 => rsx! {
+                    EmptyState {
+                        title: "One run is not enough",
+                        description: "Comparing needs two stored runs. Run another benchmark first.",
+                        ghost: Some(rsx! {
+                            GhostSelectors { left: "One stored run", right: "Nothing to compare with" }
+                        }),
+                        Link { to: Route::new_benchmark(), class: "{primary}", "New benchmark" }
+                    }
+                },
+                _ => rsx! {
+                    EmptyState {
+                        title: "Pick two runs to compare",
+                        description: "The first run is the baseline, the second is compared against it.",
+                        ghost: Some(rsx! {
+                            GhostSelectors { left: "Baseline run", right: "Comparison run" }
+                        }),
+                        Link { to: Route::runs(), class: "{primary}", "Go to Runs" }
+                    }
+                },
             },
             Some(Ok(Some(data))) => {
                 let baseline_id = data.baseline.run_id.clone();
@@ -141,6 +112,8 @@ pub fn Comparisons(baseline: String, comparison: String) -> Element {
 
                 rsx! {
                     ConfigurationNotice { baseline: baseline_id, comparison: comparison_id }
+                    Hero { data: data.clone() }
+                    KpiStrip { data: data.clone() }
                     ComparisonResults { data }
                 }
             }
@@ -152,7 +125,7 @@ pub fn Comparisons(baseline: String, comparison: String) -> Element {
         PageHeader {
             title: "Compare runs",
             description: "See what changed between a baseline run and a newer one.",
-            Link { to: Route::History {}, class: "{secondary}", "Browse runs" }
+            Link { to: Route::runs(), class: "{secondary}", "Browse runs" }
         }
         div { class: "flex flex-col gap-(--space-4)",
             {pickers}

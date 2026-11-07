@@ -11,6 +11,8 @@ pub struct ConfigurationGroup {
     // The newest run of the group, "Use these settings" fills the form from it
     pub latest: ConfigurationEntry,
     pub count: usize,
+    // Ids of every run in the group, newest first
+    pub run_ids: Vec<String>,
 }
 
 // Collapses runs with identical configurations. The input is newest first, so each group's
@@ -23,12 +25,16 @@ pub fn group(entries: &[ConfigurationEntry]) -> Vec<ConfigurationGroup> {
         let key = group_key(entry);
 
         match groups.iter().position(|(existing, _)| *existing == key) {
-            Some(index) => groups[index].1.count += 1,
+            Some(index) => {
+                groups[index].1.count += 1;
+                groups[index].1.run_ids.push(entry.run_id.clone());
+            }
             None => groups.push((
                 key,
                 ConfigurationGroup {
                     latest: entry.clone(),
                     count: 1,
+                    run_ids: vec![entry.run_id.clone()],
                 },
             )),
         }
@@ -110,6 +116,7 @@ mod tests {
         assert_eq!(groups[0].latest.run_id, "newest");
         assert_eq!(groups[0].count, 2);
         assert_eq!(groups[1].count, 1);
+        assert_eq!(groups[0].run_ids, vec!["newest", "older"]);
     }
 
     #[test]
