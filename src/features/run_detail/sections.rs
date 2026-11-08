@@ -26,7 +26,11 @@ fn group(label: &str, value: Option<f64>) -> BarGroup {
 }
 
 // Small chart of one measurement over the last runs, nothing when fewer than two runs have it
-fn trend_graph(values: Vec<Option<f64>>, format: ValueFormat, tone: ChartTone) -> Element {
+pub(super) fn trend_graph(
+    values: Vec<Option<f64>>,
+    format: ValueFormat,
+    tone: ChartTone,
+) -> Element {
     if values.iter().flatten().count() < 2 {
         return rsx! {};
     }

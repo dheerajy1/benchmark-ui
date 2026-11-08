@@ -6,6 +6,9 @@ use super::{
 };
 use crate::components::{button_class, ButtonVariant, Modal, TEXTAREA_CLASS};
 
+// Set by a button on another page, the New benchmark page opens the dialog once and clears it
+pub static PASTE_REQUEST: GlobalSignal<bool> = Signal::global(|| false);
+
 // What the dialog says about the pasted text
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Status {

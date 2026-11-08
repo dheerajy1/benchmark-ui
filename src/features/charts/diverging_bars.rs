@@ -48,7 +48,7 @@ pub fn DivergingBars(rows: Vec<DivergeRow>) -> Element {
                             key: "{row.label}",
                             role: "listitem",
                             class: "flex items-center gap-(--space-3) transition-opacity duration-150 group-hover/diverge:opacity-40 hover:opacity-100!",
-                            span { class: "w-32 shrink-0 truncate text-(length:--fs-sm) text-(color:--clr-text-muted)",
+                            span { class: "w-40 shrink-0 truncate text-(length:--fs-sm) text-(color:--clr-text-muted)",
                                 title: "{row.label}",
                                 "{row.label}"
                             }
@@ -65,7 +65,7 @@ pub fn DivergingBars(rows: Vec<DivergeRow>) -> Element {
                                     }
                                 }
                             }
-                            div { class: "w-28 shrink-0 text-right",
+                            div { class: "w-40 shrink-0 text-right",
                                 DeltaBadge {
                                     change: Some(row.change),
                                     lower_is_better: row.lower_is_better,

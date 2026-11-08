@@ -8,7 +8,7 @@ use crate::{
     components::{Card, CardError, CardHeader, GhostChart},
     features::{
         charts::{BarChart, BarGroup, BarSeries, ChartTone, TrendChart},
-        run_detail::{fetch_run, BenchmarkResult, WorkspaceResult},
+        run_detail::{fetch_run, pairs_of, BenchmarkResult, NativeVsDocker},
     },
     format::ValueFormat,
 };
@@ -42,36 +42,6 @@ fn single(name: &str, tone: ChartTone) -> Vec<BarSeries> {
         name: name.to_string(),
         tone,
     }]
-}
-
-// One group per workspace with its native and its Docker peak memory side by side
-pub fn native_vs_docker(workspaces: &[WorkspaceResult]) -> Vec<BarGroup> {
-    let mut groups: Vec<BarGroup> = Vec::new();
-
-    for workspace in workspaces {
-        let index = match groups
-            .iter()
-            .position(|group| group.label == workspace.name)
-        {
-            Some(index) => index,
-            None => {
-                groups.push(BarGroup {
-                    label: workspace.name.clone(),
-                    values: vec![None, None],
-                });
-                groups.len() - 1
-            }
-        };
-        let slot = usize::from(workspace.mode == "docker");
-        let peak = workspace
-            .memory
-            .as_ref()
-            .map(|memory| memory.peak.rss_bytes as f64);
-
-        groups[index].values[slot] = peak;
-    }
-
-    groups
 }
 
 // Charts of the Overview: throughput over the newest runs, latency percentiles and native
@@ -113,7 +83,11 @@ pub fn OverviewCharts(trends: Vec<TrendPoint>, latest_run_id: String) -> Element
                 GhostChart {}
             },
             rsx! {
-                GhostChart {}
+                ChartCard {
+                    title: "Native vs Docker",
+                    subtitle: "Peak memory of the latest run.",
+                    GhostChart {}
+                }
             },
         ),
         Some(Err(())) => (
@@ -125,7 +99,7 @@ pub fn OverviewCharts(trends: Vec<TrendPoint>, latest_run_id: String) -> Element
             },
             rsx! {
                 CardError {
-                    title: "Couldn't load native vs Docker memory",
+                    title: "Couldn't load native vs Docker",
                     on_retry: move |_| detail.restart(),
                 }
             },
@@ -160,25 +134,19 @@ pub fn OverviewCharts(trends: Vec<TrendPoint>, latest_run_id: String) -> Element
                 None => note("The latest run had no workload."),
             };
 
-            let groups = native_vs_docker(&run.metrics.workspaces);
-            let containers = if groups.is_empty() {
-                note("The latest run had no workspace.")
+            let pairs = pairs_of(&run.metrics.workspaces);
+            let containers = if pairs.is_empty() {
+                rsx! {
+                    ChartCard {
+                        title: "Native vs Docker",
+                        subtitle: "Peak memory of the latest run.",
+                        {note("The latest run had no workspace measured in both modes.")}
+                    }
+                }
             } else {
                 rsx! {
-                    BarChart {
-                        title: "Peak memory, native and Docker",
-                        groups,
-                        series: vec![
-                            BarSeries {
-                                name: "Native".to_string(),
-                                tone: ChartTone::Violet,
-                            },
-                            BarSeries {
-                                name: "Docker".to_string(),
-                                tone: ChartTone::Cyan,
-                            },
-                        ],
-                        format: ValueFormat::Bytes,
+                    for (name , native , docker) in pairs {
+                        NativeVsDocker { key: "{name}", name, native, docker }
                     }
                 }
             };
@@ -192,7 +160,7 @@ pub fn OverviewCharts(trends: Vec<TrendPoint>, latest_run_id: String) -> Element
             ChartCard {
                 title: "Throughput",
                 subtitle: "Requests per second over the last 12 runs.",
-                class: "lg:col-span-2 lg:row-span-2 lg:[--chart-height:27rem]",
+                class: "lg:col-span-2",
                 TrendChart {
                     title: "Throughput",
                     points: throughput,
@@ -205,12 +173,8 @@ pub fn OverviewCharts(trends: Vec<TrendPoint>, latest_run_id: String) -> Element
                 subtitle: "Response time of the latest run.",
                 {latency}
             }
-            ChartCard {
-                title: "Native vs Docker",
-                subtitle: "Peak memory of the latest run.",
-                {containers}
-            }
         }
+        {containers}
         div { class: "grid grid-cols-1 gap-(--space-4) lg:grid-cols-2",
             ChartCard {
                 title: "Peak memory by run",
@@ -242,43 +206,5 @@ pub fn OverviewCharts(trends: Vec<TrendPoint>, latest_run_id: String) -> Element
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn workspace(name: &str, mode: &str, peak: Option<u64>) -> WorkspaceResult {
-        let memory = peak.map(|bytes| {
-            format!(
-                r#","memory":{{"baseline":{{"rss_bytes":1,"rss_size":"1 B"}},"peak":{{"rss_bytes":{bytes},"rss_size":"x"}},"delta":{{"rss_bytes":0,"rss_size":"0 B"}}}}"#
-            )
-        });
-
-        serde_json::from_str(&format!(
-            r#"{{"name":"{name}","mode":"{mode}","status":"ok"{}}}"#,
-            memory.unwrap_or_default()
-        ))
-        .expect("parses")
-    }
-
-    #[test]
-    fn pairs_native_and_docker_per_workspace() {
-        let groups = native_vs_docker(&[
-            workspace("api", "native", Some(100)),
-            workspace("api", "docker", Some(150)),
-            workspace("worker", "native", Some(70)),
-            workspace("worker", "docker", None),
-        ]);
-
-        assert_eq!(groups.len(), 2);
-        assert_eq!(groups[0].values, vec![Some(100.0), Some(150.0)]);
-        assert_eq!(groups[1].values, vec![Some(70.0), None]);
-    }
-
-    #[test]
-    fn no_workspace_gives_no_groups() {
-        assert!(native_vs_docker(&[]).is_empty());
     }
 }

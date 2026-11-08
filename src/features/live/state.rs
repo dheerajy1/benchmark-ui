@@ -709,11 +709,6 @@ impl LiveState {
             })
             .collect()
     }
-
-    // Whether the charts show only the most recent part of the samples
-    pub fn chart_is_windowed(&self) -> bool {
-        self.samples.len() > CHART_WINDOW
-    }
 }
 
 fn stage_of(data: &Value) -> Option<Stage> {
@@ -1427,7 +1422,6 @@ mod tests {
         assert_eq!(series.len(), CHART_WINDOW);
         assert_eq!(series[0].axis_label, "5 s");
         assert_eq!(series[0].value, Some(41.2));
-        assert!(state.chart_is_windowed());
 
         let mut empty_cpu = self::state();
 
@@ -1451,7 +1445,6 @@ mod tests {
             empty_cpu.chart_series(|sample| sample.cpu_interval)[0].value,
             None
         );
-        assert!(!empty_cpu.chart_is_windowed());
     }
 
     #[test]

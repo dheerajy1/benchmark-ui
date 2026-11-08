@@ -10,7 +10,7 @@ use super::{
 use crate::{
     app::Route,
     components::{button_class, ButtonVariant, EmptyState, GhostTiles, Icon, IconKind, PageHeader},
-    features::connection::ApiErrorPanel,
+    features::{connection::ApiErrorPanel, submission::PASTE_REQUEST},
 };
 
 // Amber note under the header, used when the page has no numbers to show
@@ -46,6 +46,13 @@ fn content(data: OverviewData) -> Element {
                     GhostTiles {}
                 }),
                 Link { to: Route::new_benchmark(), class: "{primary}", "New benchmark" }
+                Link {
+                    to: Route::new_benchmark(),
+                    class: "{secondary}",
+                    onclick: move |_| *PASTE_REQUEST.write() = true,
+                    Icon { kind: IconKind::Copy, class: "size-(--icon-sm)" }
+                    "Paste JSON"
+                }
             }
         },
         OverviewState::UnknownProject => {

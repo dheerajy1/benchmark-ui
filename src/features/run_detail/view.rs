@@ -294,7 +294,10 @@ fn RunBody(run_id: String, result: BenchmarkResult) -> Element {
             }
             if has_workspaces {
                 SectionBlock { index: 4, spy, title: "Subscriber",
-                    WorkspacesSection { workspaces: metrics.workspaces.clone() }
+                    WorkspacesSection {
+                        workspaces: metrics.workspaces.clone(),
+                        image_trend: series(Column::ImageSize),
+                    }
                 }
             }
             SectionBlock { index: configuration_index, spy, title: "Configuration",

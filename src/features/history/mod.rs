@@ -9,7 +9,7 @@ mod run_row;
 mod selection;
 mod view;
 
-pub use api::{fetch_page, fetch_recent_runs, HistoryFilters};
+pub use api::{delete_run, fetch_page, fetch_recent_runs, HistoryFilters};
 pub use columns::Column;
 pub use models::{runtime_label, RunSummary};
 pub use view::History;

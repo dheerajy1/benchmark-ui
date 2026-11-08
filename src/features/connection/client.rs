@@ -156,6 +156,19 @@ pub async fn post_json<B: Serialize, T: DeserializeOwned>(
     read_response(response, line).await
 }
 
+// Sends a DELETE request and returns the `data` member of the success envelope
+pub async fn delete_json<T: DeserializeOwned>(path: &str) -> Result<T, ApiError> {
+    let url = endpoint(path)?;
+    let line = request_line("DELETE", path, &[]);
+
+    let response = Request::delete(&url)
+        .send()
+        .await
+        .map_err(|error| network_error(error, line.clone()))?;
+
+    read_response(response, line).await
+}
+
 async fn read_response<T: DeserializeOwned>(
     response: Response,
     line: String,

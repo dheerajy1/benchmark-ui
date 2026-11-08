@@ -1,9 +1,9 @@
 use dioxus::prelude::*;
 
-use super::state::{LiveState, Stage, StageState};
+use super::state::{LiveState, Stage, StageState, Terminal};
 use crate::{
-    components::{Card, CardHeader},
-    features::submission::{average_for, last_for, StageAverages},
+    components::Card,
+    features::submission::{last_for, StageAverages},
     format::{format_duration_ms, humanize_code},
 };
 
@@ -29,8 +29,8 @@ impl Phase {
             Self::Running => {
                 "animate-spin border-2 border-(color:--clr-accent) border-t-transparent"
             }
-            Self::Done => "bg-(--clr-success-soft) text-(color:--clr-success)",
-            Self::Failed => "bg-(--clr-danger-soft) text-(color:--clr-danger)",
+            Self::Done => "bg-(--clr-success) text-white",
+            Self::Failed => "bg-(--clr-danger) text-white",
             Self::Cancelled => {
                 "border border-(color:--clr-border-strong) text-(color:--clr-text-muted)"
             }
@@ -43,8 +43,8 @@ impl Phase {
     fn glyph(self) -> &'static str {
         match self {
             Self::Done => "✓",
-            Self::Failed => "!",
-            Self::Cancelled => "✕",
+            Self::Failed => "✕",
+            Self::Cancelled => "■",
             Self::Neutral | Self::Skipped | Self::NotRequested => "–",
             Self::Pending | Self::Running => "",
         }
@@ -166,6 +166,20 @@ fn row_for(state: &LiveState, stage: Stage, clock_ms: u64) -> Row {
                     None,
                 )
             } else {
+                // A run that stopped early says so on every step it never reached
+                let detail = match state.terminal() {
+                    Some(Terminal::Failed { persisted, .. })
+                    | Some(Terminal::Cancelled { persisted, .. }) => Some(
+                        if stage == Stage::Saving && *persisted {
+                            "Partial result saved"
+                        } else {
+                            "Not run"
+                        }
+                        .to_string(),
+                    ),
+                    _ => detail,
+                };
+
                 (Phase::Pending, detail, None, None)
             }
         }
@@ -243,15 +257,32 @@ fn row_for(state: &LiveState, stage: Stage, clock_ms: u64) -> Row {
     }
 }
 
+// The line under a step is green once the step is done, grey while the way is still open
+fn connector_class(phase: Phase) -> &'static str {
+    if phase == Phase::Done {
+        "bg-(--clr-success)"
+    } else {
+        "bg-(--clr-border-strong)"
+    }
+}
+
 #[component]
-fn StageRow(row: Row) -> Element {
+fn StageRow(row: Row, last: bool) -> Element {
     let marker = row.phase.marker_class();
     let glyph = row.phase.glyph();
     let word = row.phase.word();
     let label_class = row.phase.label_class();
+    let line_class = connector_class(row.phase);
 
     rsx! {
-        li { class: "flex items-start gap-(--space-3) px-(--space-4) py-(--space-3)",
+        li { class: "relative flex items-start gap-(--space-3) px-(--space-4) py-(--space-3)",
+            if !last {
+                span {
+                    class: "absolute w-0.5 {line_class}",
+                    style: "left: calc(var(--space-4) + 0.75rem - 1px); top: calc(var(--space-3) + 1.5rem + 2px); bottom: calc(var(--space-3) * -1 + 2px);",
+                    "aria-hidden": "true",
+                }
+            }
             span {
                 class: "mt-px flex size-6 shrink-0 items-center justify-center rounded-(--round-full) text-(length:--fs-xs) font-(weight:--fw-semibold) {marker}",
                 "aria-hidden": "true",
@@ -329,63 +360,79 @@ pub fn Pipeline(
             .collect()
     };
 
+    let (count_text, percent, stopped) = progress_summary(&rows);
+    let count_class = if stopped {
+        "text-(color:--clr-danger-text)"
+    } else {
+        "text-(color:--clr-text-muted)"
+    };
+    let fill_class = if stopped {
+        "bg-(--clr-danger)"
+    } else {
+        "bg-(--clr-text)"
+    };
+    let last_index = rows.len().saturating_sub(1);
+
     rsx! {
         Card {
-            CardHeader {
-                title: "Pipeline",
-                subtitle: "Each step reports when it starts and when it finishes.",
+            div { class: "flex items-center gap-(--space-3) px-(--space-4) pt-(--space-4) pb-(--space-2)",
+                h3 { class: "text-(length:--fs-base) font-(weight:--fw-semibold) text-(color:--clr-text)",
+                    "Pipeline"
+                }
+                span { class: "text-(length:--fs-xs) tabular-nums {count_class}", "{count_text}" }
+                div {
+                    role: "progressbar",
+                    "aria-valuemin": "0",
+                    "aria-valuemax": "100",
+                    "aria-valuenow": "{percent}",
+                    "aria-label": "Steps finished",
+                    class: "ml-auto h-1 w-24 overflow-hidden rounded-(--round-full) bg-(--clr-surface-raised)",
+                    div {
+                        class: "h-full rounded-(--round-full) transition-[width] {fill_class}",
+                        style: "width: {percent}%",
+                    }
+                }
             }
-            ol { class: "flex flex-col divide-y divide-(color:--clr-border)",
+            ol { class: "flex flex-col",
                 for (index , row) in rows.into_iter().enumerate() {
-                    StageRow { key: "{index}", row }
+                    StageRow {
+                        key: "{index}",
+                        row,
+                        last: index == last_index,
+                    }
                 }
             }
         }
     }
 }
 
-// The first step that has not started and will run, `None` when the run is over or stopping
-fn next_stage(state: &LiveState) -> Option<Stage> {
-    if state.is_terminal() || state.is_cancelling() {
-        return None;
-    }
-
-    let running = Stage::ALL
+// `5 of 8` while the run goes, `stopped at 4 of 8` when it failed or was cancelled, the share of
+// steps finished, and whether the run stopped. Steps that were not requested are not counted.
+fn progress_summary(rows: &[Row]) -> (String, u32, bool) {
+    let counted: Vec<&Row> = rows
         .iter()
-        .position(|stage| matches!(state.stage(*stage), StageState::Running { .. }));
-
-    Stage::ALL
+        .filter(|row| row.phase != Phase::NotRequested)
+        .collect();
+    let total = counted.len();
+    let finished = counted
         .iter()
-        .skip(running.map_or(0, |index| index + 1))
-        .copied()
-        .find(|stage| row_for(state, *stage, 0).phase == Phase::Pending)
-}
+        .filter(|row| matches!(row.phase, Phase::Done | Phase::Neutral | Phase::Skipped))
+        .count();
+    let stopped_at = counted
+        .iter()
+        .position(|row| matches!(row.phase, Phase::Failed | Phase::Cancelled));
 
-// What comes after the step that is running, and about how long it usually takes
-#[component]
-pub fn UpNext(state: Signal<LiveState>, averages: Option<StageAverages>) -> Element {
-    let Some(stage) = next_stage(&state.read()) else {
-        return rsx! {};
-    };
+    let percent = (finished * 100)
+        .checked_div(total)
+        .map_or(0, |share| share as u32);
 
-    let usual = averages
-        .as_ref()
-        .and_then(|known| average_for(stage, known))
-        .map_or_else(
-            || "Usual time not known yet".to_string(),
-            |ms| format!("Usually about {}", format_duration_ms(ms as f64)),
-        );
-
-    rsx! {
-        Card { class: "flex flex-col gap-(--space-1) px-(--space-4) py-(--space-3)",
-            span { class: "text-(length:--fs-2xs) font-(weight:--fw-medium) uppercase tracking-wider text-(color:--clr-text-faint)",
-                "Up next"
-            }
-            span { class: "text-(length:--fs-sm) font-(weight:--fw-medium) text-(color:--clr-text)",
-                "{stage.label()}"
-            }
-            span { class: "text-(length:--fs-xs) text-(color:--clr-text-muted)", "{usual}" }
-        }
+    match stopped_at {
+        Some(index) => (
+            format!("stopped at {} of {total}", index + 1),
+            percent,
+            true,
+        ),
+        None => (format!("{finished} of {total}"), percent, false),
     }
 }
 
@@ -648,10 +695,74 @@ mod tests {
         assert!(change_vs_last(3_800, 5_000).class.contains("success"));
     }
 
-    #[test]
-    fn nothing_is_next_before_the_run_is_known_to_have_ended() {
-        let state = LiveState::new("r".to_string());
+    fn row_in(phase: Phase) -> Row {
+        Row {
+            label: "Step",
+            phase,
+            detail: None,
+            time: None,
+            bar: None,
+            finished_ms: None,
+            change: None,
+        }
+    }
 
-        assert_eq!(next_stage(&state), Some(Stage::Discovery));
+    #[test]
+    fn the_header_counts_finished_steps_and_leaves_out_those_not_requested() {
+        let rows = vec![
+            row_in(Phase::Done),
+            row_in(Phase::Neutral),
+            row_in(Phase::Running),
+            row_in(Phase::NotRequested),
+            row_in(Phase::Pending),
+        ];
+
+        assert_eq!(progress_summary(&rows), ("2 of 4".to_string(), 50, false));
+    }
+
+    #[test]
+    fn the_header_says_where_a_run_stopped() {
+        let rows = vec![
+            row_in(Phase::Done),
+            row_in(Phase::Done),
+            row_in(Phase::Failed),
+            row_in(Phase::Pending),
+        ];
+
+        assert_eq!(
+            progress_summary(&rows),
+            ("stopped at 3 of 4".to_string(), 50, true)
+        );
+        assert_eq!(progress_summary(&[]), ("0 of 0".to_string(), 0, false));
+    }
+
+    #[test]
+    fn the_line_under_a_step_is_green_only_when_the_step_is_done() {
+        assert!(connector_class(Phase::Done).contains("success"));
+        assert!(connector_class(Phase::Running).contains("border"));
+        assert!(connector_class(Phase::Failed).contains("border"));
+    }
+
+    #[test]
+    fn steps_a_stopped_run_never_reached_say_so() {
+        let mut state = LiveState::new("r".to_string());
+
+        accepted(&mut state, Value::Null);
+        feed(
+            &mut state,
+            2,
+            5,
+            "run.failed",
+            json!({"code": "X", "message": "boom", "stage": "build", "persisted": true}),
+        );
+
+        assert_eq!(
+            row_for(&state, Stage::Startup, 0).detail.as_deref(),
+            Some("Not run")
+        );
+        assert_eq!(
+            row_for(&state, Stage::Saving, 0).detail.as_deref(),
+            Some("Partial result saved")
+        );
     }
 }

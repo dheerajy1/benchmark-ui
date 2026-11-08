@@ -6,16 +6,16 @@ use super::{
     header::{HeaderCard, LiveHud, TabTitle},
     last_run::fetch_last_run,
     outcome::Outcome,
-    phase::Charts,
-    pipeline::{Pipeline, UpNext},
+    phase::{ModeGroups, WorkloadGroup},
+    pipeline::Pipeline,
     state::{log_text, LiveState, Terminal},
     token::{forget_token, load_token, SessionTokenStore},
 };
 use crate::{
     app::Route,
     components::{
-        button_class, copy_text, use_toasts, ButtonVariant, Card, CardHeader, ErrorKind,
-        ErrorState, Icon, IconKind, LoadingPanel, PageHeader,
+        button_class, copy_text, use_section_spy, use_toasts, ButtonVariant, Card, CardHeader,
+        ErrorKind, ErrorState, Icon, IconKind, LoadingPanel, PageHeader, SectionBar, SectionBlock,
     },
     features::{
         run_detail::WorkspacesSection,
@@ -119,6 +119,26 @@ fn LivePage(run_id: String) -> Element {
         }
     });
 
+    let spy = use_section_spy();
+
+    // The comparison of Native and Docker is part of the stored result. Its place is kept while the
+    // run goes, so the tabs and the page do not change shape when the result arrives.
+    let (has_results, show_comparison) = {
+        let snapshot = state.read();
+        let results = match snapshot.terminal() {
+            Some(Terminal::Completed(Some(result))) => !result.metrics.workspaces.is_empty(),
+            _ => false,
+        };
+        let planned = snapshot.workspaces_requested() == Some(true) && !snapshot.is_terminal();
+
+        (results, results || planned)
+    };
+    let titles: Vec<&'static str> = if show_comparison {
+        vec!["Workload", "Workspaces", "Comparison"]
+    } else {
+        vec!["Workload", "Workspaces"]
+    };
+
     let short = short_id(&run_id);
     let secondary = button_class(ButtonVariant::Secondary);
 
@@ -174,27 +194,46 @@ fn LivePage(run_id: String) -> Element {
                     last_run_id: last_run().flatten().map(|last| last.run_id),
                 }
                 if !state.read().is_recovered() {
-                    div { class: "grid grid-cols-1 gap-(--space-4) lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] lg:items-start",
-                        div { class: "flex min-w-0 flex-col gap-(--space-4)",
-                            Pipeline {
-                                state,
-                                clock,
-                                averages: averages().flatten(),
-                            }
-                            UpNext { state, averages: averages().flatten() }
-                        }
-                        Charts {
+                    SectionBar { titles, spy }
+                    div { class: "grid grid-cols-1 gap-(--space-4) lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]",
+                        Pipeline {
                             state,
-                            frozen,
-                            last_run: last_run().flatten(),
-                            averages: averages().flatten(),
                             clock,
+                            averages: averages().flatten(),
+                        }
+                        SectionBlock { index: 0, spy, title: "Workload",
+                            WorkloadGroup {
+                                state,
+                                frozen,
+                                last_run: last_run().flatten(),
+                                averages: averages().flatten(),
+                                clock,
+                            }
+                        }
+                        // The log scrolls inside its box, so it never makes the row taller than
+                        // the workspace cards beside it
+                        div { class: "relative min-h-72 min-w-0",
+                            EventLog { state }
+                        }
+                        SectionBlock { index: 1, spy, title: "Workspaces",
+                            ModeGroups {
+                                state,
+                                frozen,
+                                last_run: last_run().flatten(),
+                            }
                         }
                     }
                 }
-                WorkspaceResults { state }
-                if !state.read().is_recovered() {
-                    EventLog { state }
+                if show_comparison {
+                    SectionBlock { index: 2, spy, title: "Comparison",
+                        if has_results {
+                            WorkspaceResults { state }
+                        } else {
+                            div { class: "flex min-h-40 items-center justify-center rounded-(--round-lg) border border-dashed border-(color:--clr-border-strong) px-(--space-4) text-center text-(length:--fs-sm) text-(color:--clr-text-faint)",
+                                "The Native and Docker comparison appears when the run is saved"
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -304,7 +343,7 @@ fn EventLog(state: Signal<LiveState>) -> Element {
     };
 
     rsx! {
-        Card {
+        Card { class: "absolute inset-0 flex flex-col",
             CardHeader {
                 title: "Events",
                 subtitle: "Oldest first, times are since the run was accepted.",
@@ -321,7 +360,7 @@ fn EventLog(state: Signal<LiveState>) -> Element {
                     }
                 }),
             }
-            ol { class: "flex max-h-72 flex-col-reverse gap-(--space-1) overflow-y-auto px-(--space-4) py-(--space-3)",
+            ol { class: "flex min-h-0 flex-1 flex-col-reverse gap-(--space-1) overflow-y-auto px-(--space-4) py-(--space-3)",
                 for (index , (time , text , tone_class)) in lines.into_iter().enumerate() {
                     li {
                         key: "{index}",

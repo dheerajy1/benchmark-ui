@@ -3,6 +3,7 @@
 mod not_found;
 mod pinned;
 mod recents;
+mod run_menu;
 mod settings_menu;
 mod sidebar;
 mod state;

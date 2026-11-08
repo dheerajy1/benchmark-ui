@@ -18,5 +18,6 @@ mod target_run;
 mod view;
 mod workspace;
 
-pub use estimate::{average_for, fetch_stage_averages, last_for, live_total_ms, StageAverages};
+pub use estimate::{fetch_stage_averages, last_for, live_total_ms, StageAverages};
+pub use paste_modal::PASTE_REQUEST;
 pub use view::{Submission, SubmissionFrom};

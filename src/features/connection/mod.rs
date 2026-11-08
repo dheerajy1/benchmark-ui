@@ -7,7 +7,7 @@ mod indicator;
 mod panel;
 mod status;
 
-pub use client::{base_url, get_json, post_json, ws_endpoint};
+pub use client::{base_url, delete_json, get_json, post_json, ws_endpoint};
 pub use error::ApiError;
 #[cfg(test)]
 pub use error::RequestInfo;

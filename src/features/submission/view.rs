@@ -7,7 +7,7 @@ use super::{
     custom_form::CustomForm,
     estimate::{custom_plan, fetch_stage_averages, panel_parts, target_plan, StageAverages},
     form::{validate, FieldError, FormState},
-    paste_modal::PasteModal,
+    paste_modal::{PasteModal, PASTE_REQUEST},
     prefill::{prefill_for, Prefill},
     previous_runs::{cards, format_when, now_epoch_ms, PreviousRuns},
     run_panel::RunPanel,
@@ -328,6 +328,24 @@ pub fn Submission(#[props(default)] from_run: Option<String>, target: String) ->
 
     // Custom runs are offered only when the server allows them
     let custom_allowed = matches!(&targets_state, Loaded::Ready(view) if view.custom_runs_allowed);
+
+    // A button on another page asked for the paste dialog, it opens once the server has answered
+    use_effect(move || {
+        let Loaded::Ready(view) = targets() else {
+            return;
+        };
+
+        if !PASTE_REQUEST() {
+            return;
+        }
+
+        *PASTE_REQUEST.write() = false;
+
+        if view.custom_runs_allowed {
+            start_mode.set(StartMode::Custom);
+            paste_open.set(true);
+        }
+    });
 
     // Custom mode is never shown on a server that refuses custom runs
     let effective_mode = match (mode, &targets_state) {

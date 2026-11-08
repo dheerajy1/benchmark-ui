@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use dioxus::prelude::*;
 
-use super::state::use_shell;
+use super::{run_menu::RunMenu, state::use_shell};
 use crate::{
     app::Route,
     components::{Collapse, Icon, IconKind, Popover, PopoverAlign, RuntimeTag, Skeleton},
@@ -190,17 +190,25 @@ pub fn RecentRun(run: RunSummary) -> Element {
     let shell = use_shell();
 
     rsx! {
-        Link {
-            to: Route::RunDetail {
+        div { class: "group/run relative",
+            Link {
+                to: Route::RunDetail {
+                    run_id: run.run_id.clone(),
+                },
+                class: "flex h-9 items-center gap-(--space-2) rounded-(--round-md) pr-8 pl-(--space-3) text-(length:--fs-sm) transition-colors {state_class}",
+                title: "{run.title()}",
+                onclick: move |_| shell.close_peek(),
+                span { class: "size-(--dot-size) shrink-0 rounded-(--round-full) {dot_class}" }
+                span { class: "min-w-0 flex-1 truncate", "{run.display_name}" }
+                if let Some(runtime) = runtime {
+                    RuntimeTag { runtime }
+                }
+            }
+            RunMenu {
                 run_id: run.run_id.clone(),
-            },
-            class: "flex h-9 items-center gap-(--space-2) rounded-(--round-md) px-(--space-3) text-(length:--fs-sm) transition-colors {state_class}",
-            title: "{run.title()}",
-            onclick: move |_| shell.close_peek(),
-            span { class: "size-(--dot-size) shrink-0 rounded-(--round-full) {dot_class}" }
-            span { class: "min-w-0 flex-1 truncate", "{run.display_name}" }
-            if let Some(runtime) = runtime {
-                RuntimeTag { runtime }
+                name: run.display_name.clone(),
+                open_here: active,
+                running,
             }
         }
     }

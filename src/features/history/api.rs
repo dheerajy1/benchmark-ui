@@ -1,5 +1,5 @@
 use super::models::HistoryPage;
-use crate::features::connection::{get_json, ApiError};
+use crate::features::connection::{delete_json, get_json, ApiError};
 
 const PATH: &str = "/benchmarks";
 
@@ -73,9 +73,26 @@ pub async fn fetch_recent_runs() -> Result<HistoryPage, ApiError> {
     fetch_page(&HistoryFilters::default(), None, MAX_PAGE_SIZE).await
 }
 
+// Address of one run
+fn run_path(run_id: &str) -> String {
+    format!("{PATH}/{run_id}")
+}
+
+// DELETE /api/v1/benchmarks/{run_id}, the answer carries no data
+pub async fn delete_run(run_id: &str) -> Result<(), ApiError> {
+    delete_json::<serde_json::Value>(&run_path(run_id))
+        .await
+        .map(|_| ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_run_lives_under_the_benchmarks_path() {
+        assert_eq!(run_path("abc"), "/benchmarks/abc");
+    }
 
     #[test]
     fn omits_empty_filters() {

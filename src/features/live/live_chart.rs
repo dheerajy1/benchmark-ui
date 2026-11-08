@@ -110,6 +110,8 @@ pub fn LiveChartCard(
     // Compares the newest reading with the last run instead of the highest one
     #[props(default)] compare_latest: bool,
     #[props(default)] higher_is_better: bool,
+    // Drawn inside a group card, so without a card of its own
+    #[props(default)] bare: bool,
 ) -> Element {
     let values: Vec<f64> = points.iter().filter_map(|point| point.value).collect();
     let peak = values.iter().copied().reduce(f64::max);
@@ -128,6 +130,36 @@ pub fn LiveChartCard(
         value,
         label: format!("{last_label} {}", format_optional(Some(value), format)),
     });
+
+    if bare {
+        return rsx! {
+            div { class: "flex min-w-0 flex-col gap-(--space-2)",
+                div { class: "flex flex-wrap items-center justify-between gap-(--space-2)",
+                    h4 { class: "text-(length:--fs-sm) font-(weight:--fw-semibold) text-(color:--clr-text)",
+                        "{title}"
+                    }
+                    div { class: "flex flex-wrap items-center justify-end gap-(--space-2)",
+                        if let Some(direction) = direction {
+                            Badge { label: direction.label(), tone: direction.tone() }
+                        }
+                        if let Some((text , tone)) = pill {
+                            Badge { label: text, tone }
+                        }
+                    }
+                }
+                TrendChart {
+                    title,
+                    points,
+                    format,
+                    tone,
+                    reference,
+                    ghost,
+                    live,
+                    mark_peak: true,
+                }
+            }
+        };
+    }
 
     rsx! {
         Card {

@@ -112,13 +112,14 @@ pub fn SectionBlock(
     index: usize,
     spy: SectionSpy,
     #[props(into)] title: String,
+    #[props(into, default)] class: String,
     children: Element,
 ) -> Element {
     let mut refs = spy.refs;
 
     rsx! {
         section {
-            class: "fade-up scroll-mt-36 flex flex-col gap-(--space-3)",
+            class: "fade-up scroll-mt-36 flex flex-col gap-(--space-3) {class}",
             "aria-label": "{title}",
             onmounted: move |event| {
                 let mut list = refs.write();

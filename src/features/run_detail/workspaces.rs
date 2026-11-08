@@ -1,9 +1,13 @@
 use dioxus::prelude::*;
 
-use super::models::WorkspaceResult;
+use super::{
+    models::WorkspaceResult,
+    native_vs_docker::{pairs_of, NativeVsDocker},
+    sections::trend_graph,
+};
 use crate::{
     components::{Card, CardHeader, Definition, StatusBadge},
-    features::charts::{BarChart, BarGroup, BarSeries, ChartTone},
+    features::charts::ChartTone,
     format::{format_bytes, format_duration_ms, format_percent, ValueFormat, MISSING},
 };
 
@@ -21,113 +25,39 @@ fn duration(value: Option<u64>) -> String {
 // One card per workspace and mode: image size, build time, startup time, memory, CPU and the
 // load result. A mode that did not succeed shows why and its numbers stay empty.
 #[component]
-pub fn WorkspacesSection(workspaces: Vec<WorkspaceResult>) -> Element {
+pub fn WorkspacesSection(
+    workspaces: Vec<WorkspaceResult>,
+    // Docker image size of the last runs of this target, the run itself last
+    #[props(default)] image_trend: Vec<Option<f64>>,
+) -> Element {
     if workspaces.is_empty() {
         return rsx! {};
     }
 
-    // The modes of one workspace are compared side by side, so they are grouped by name
-    let mut groups: Vec<(String, Vec<WorkspaceResult>)> = Vec::new();
+    // The numbers add up the images of every Docker workspace, so a single one can show them
+    let single_docker = workspaces
+        .iter()
+        .filter(|workspace| workspace.mode == "docker")
+        .count()
+        == 1;
 
-    for workspace in &workspaces {
-        match groups.iter_mut().find(|(name, _)| *name == workspace.name) {
-            Some((_, modes)) => modes.push(workspace.clone()),
-            None => groups.push((workspace.name.clone(), vec![workspace.clone()])),
-        }
-    }
+    // Native and Docker of one workspace are compared in one card, when both ran
+    let pairs = pairs_of(&workspaces);
 
     rsx! {
-        for (name , modes) in groups {
-            WorkspaceCharts { key: "{name}", name, modes }
+        for (name , native , docker) in pairs {
+            NativeVsDocker { key: "{name}", name, native, docker }
         }
         for workspace in workspaces {
-            WorkspaceCard { workspace }
-        }
-    }
-}
+            {
+                let trend = if single_docker && workspace.mode == "docker" {
+                    image_trend.clone()
+                } else {
+                    Vec::new()
+                };
 
-fn bars(
-    label: &str,
-    modes: &[WorkspaceResult],
-    pick: fn(&WorkspaceResult) -> Option<f64>,
-) -> BarGroup {
-    BarGroup {
-        label: label.to_string(),
-        values: modes.iter().map(pick).collect(),
-    }
-}
-
-// Native and Docker of one workspace side by side: memory, CPU and the time it took
-#[component]
-fn WorkspaceCharts(name: String, modes: Vec<WorkspaceResult>) -> Element {
-    let series: Vec<BarSeries> = modes
-        .iter()
-        .map(|mode| BarSeries {
-            name: mode_title(&mode.mode).to_string(),
-            tone: if mode.mode == "docker" {
-                ChartTone::Cyan
-            } else {
-                ChartTone::Violet
-            },
-        })
-        .collect();
-
-    let memory = vec![
-        bars("baseline", &modes, |m| {
-            m.memory.as_ref().map(|x| x.baseline.rss_bytes as f64)
-        }),
-        bars("peak", &modes, |m| {
-            m.memory.as_ref().map(|x| x.peak.rss_bytes as f64)
-        }),
-    ];
-    let cpu = vec![
-        bars("average", &modes, |m| {
-            m.cpu.as_ref().map(|x| x.average_percent)
-        }),
-        bars("peak", &modes, |m| m.cpu.as_ref().map(|x| x.peak_percent)),
-    ];
-    let time = vec![
-        bars("build", &modes, |m| {
-            m.build.as_ref().map(|x| x.duration_ms as f64)
-        }),
-        bars("startup", &modes, |m| {
-            m.startup.as_ref().map(|x| x.duration_ms as f64)
-        }),
-    ];
-
-    rsx! {
-        div { class: "grid grid-cols-1 gap-(--space-4) lg:grid-cols-3",
-            Card {
-                CardHeader { title: "{name} · memory", subtitle: "Resident set size, native and Docker side by side." }
-                div { class: "p-(--space-4) pb-(--space-3)",
-                    BarChart {
-                        title: "{name} memory",
-                        groups: memory,
-                        series: series.clone(),
-                        format: ValueFormat::Bytes,
-                    }
-                }
-            }
-            Card {
-                CardHeader { title: "{name} · CPU", subtitle: "100% is one fully used core." }
-                div { class: "p-(--space-4) pb-(--space-3)",
-                    BarChart {
-                        title: "{name} CPU",
-                        groups: cpu,
-                        series: series.clone(),
-                        format: ValueFormat::Percent,
-                    }
-                }
-            }
-            Card {
-                CardHeader { title: "{name} · build and startup", subtitle: "A native run without a build command has no build time." }
-                div { class: "p-(--space-4) pb-(--space-3)",
-                    BarChart {
-                        title: "{name} build and startup",
-                        groups: time,
-                        series,
-                        format: ValueFormat::DurationMs,
-                    }
+                rsx! {
+                    WorkspaceCard { image_trend: trend, workspace }
                 }
             }
         }
@@ -135,8 +65,16 @@ fn WorkspaceCharts(name: String, modes: Vec<WorkspaceResult>) -> Element {
 }
 
 #[component]
-fn WorkspaceCard(workspace: WorkspaceResult) -> Element {
-    let title = format!("{} · {}", workspace.name, mode_title(&workspace.mode));
+fn WorkspaceCard(
+    workspace: WorkspaceResult,
+    #[props(default)] image_trend: Vec<Option<f64>>,
+) -> Element {
+    let title = mode_title(&workspace.mode);
+    let has_trend = image_trend.iter().flatten().count() >= 2;
+    let subtitle = format!(
+        "Workspace {} · measured after the project, from the process or the container's main process.",
+        workspace.name
+    );
 
     let image = workspace
         .image
@@ -185,8 +123,8 @@ fn WorkspaceCard(workspace: WorkspaceResult) -> Element {
     rsx! {
         Card {
             CardHeader {
-                title: "{title}",
-                subtitle: "Measured after the project, from the process or the container's main process.",
+                title,
+                subtitle,
             }
             div { class: "flex flex-col gap-(--space-4) p-(--space-4)",
                 dl { class: "grid grid-cols-2 gap-(--space-4) md:grid-cols-4",
@@ -201,6 +139,14 @@ fn WorkspaceCard(workspace: WorkspaceResult) -> Element {
                     Definition { label: "Memory peak", "{peak}" }
                     Definition { label: "CPU average", "{cpu_average}" }
                     Definition { label: "CPU peak", "{cpu_peak}" }
+                }
+                if has_trend {
+                    div { class: "grid grid-cols-2 gap-(--space-1)",
+                        p { class: "col-span-2 text-(length:--fs-sm) font-(weight:--fw-medium) text-(color:--clr-text)",
+                            "Docker image size"
+                        }
+                        {trend_graph(image_trend, ValueFormat::Bytes, ChartTone::Cyan)}
+                    }
                 }
                 if let Some(load) = workspace.load.clone() {
                     dl { class: "grid grid-cols-2 gap-(--space-4) md:grid-cols-4",

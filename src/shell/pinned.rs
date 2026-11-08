@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
 
-use super::recents::{RecentRun, SectionToggle};
+use super::{
+    recents::{RecentRun, SectionToggle},
+    state::use_shell,
+};
 use crate::{
     components::{Collapse, Icon, IconKind, Skeleton},
     features::{
@@ -17,12 +20,15 @@ const TARGET_RUNS: u32 = 5;
 fn PinnedTarget(target: TargetView) -> Element {
     let mut expanded = use_signal(|| false);
     let path = target.path.clone();
+    let shell = use_shell();
 
     let runs = use_resource(move || {
         let filters = HistoryFilters {
             target_path: path.clone(),
             ..HistoryFilters::default()
         };
+        // A deleted run leaves this list too
+        let _ = shell.recents_version();
 
         async move { fetch_page(&filters, None, TARGET_RUNS).await }
     });
