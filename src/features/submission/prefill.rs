@@ -150,6 +150,25 @@ fn custom_fill(entry: &ConfigurationEntry, removed_target_notice: Option<String>
     }
 }
 
+// The run a fresh custom form is compared with: the newest run of the typed project path, or
+// the newest run of all while none matches. `runs` is newest first, as the API sends it.
+pub fn reference_for(runs: &[ConfigurationEntry], path: &str) -> Option<FormState> {
+    let wanted = path.trim().trim_end_matches('/');
+
+    let by_path = if wanted.is_empty() {
+        None
+    } else {
+        runs.iter()
+            .find(|entry| entry.path.trim_end_matches('/') == wanted)
+    };
+    let entry = by_path.or_else(|| runs.first())?;
+
+    match custom_fill(entry, None) {
+        Prefill::Custom { form, .. } => Some(*form),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -205,6 +224,36 @@ mod tests {
         assert!(!form.workload_enabled);
         assert!(header_names.is_empty());
         assert!(notice.unwrap_or_default().contains("not recorded"));
+    }
+
+    fn entry_at(run_id: &str, path: &str) -> ConfigurationEntry {
+        let mut entry = legacy_entry();
+
+        entry.run_id = run_id.to_string();
+        entry.path = path.to_string();
+
+        entry
+    }
+
+    #[test]
+    fn the_reference_is_the_newest_run_of_the_typed_path() {
+        let runs = vec![
+            entry_at("a", "/srv/a"),
+            entry_at("b", "/srv/b"),
+            entry_at("c", "/srv/b"),
+        ];
+
+        assert_eq!(reference_for(&runs, "/srv/b/ ").unwrap().path, "/srv/b");
+        assert_eq!(reference_for(&runs, "/srv/a").unwrap().path, "/srv/a");
+    }
+
+    #[test]
+    fn without_a_matching_path_the_reference_is_the_newest_run() {
+        let runs = vec![entry_at("a", "/srv/a"), entry_at("b", "/srv/b")];
+
+        assert_eq!(reference_for(&runs, "").unwrap().path, "/srv/a");
+        assert_eq!(reference_for(&runs, "/srv/none").unwrap().path, "/srv/a");
+        assert!(reference_for(&[], "/srv/a").is_none());
     }
 
     #[test]

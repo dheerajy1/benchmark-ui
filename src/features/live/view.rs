@@ -9,6 +9,7 @@ use super::{
     phase::{ModeGroups, WorkloadGroup},
     pipeline::Pipeline,
     state::{log_text, LiveState, Terminal},
+    tab_badge::TabBadge,
     token::{forget_token, load_token, SessionTokenStore},
 };
 use crate::{
@@ -240,6 +241,7 @@ fn LivePage(run_id: String) -> Element {
     };
 
     rsx! {
+        TabBadge { state }
         TabTitle {
             state,
             clock,

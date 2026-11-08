@@ -65,7 +65,7 @@ pub fn DivergingBars(rows: Vec<DivergeRow>) -> Element {
                                     }
                                 }
                             }
-                            div { class: "w-40 shrink-0 text-right",
+                            div { class: "w-48 shrink-0 text-right",
                                 DeltaBadge {
                                     change: Some(row.change),
                                     lower_is_better: row.lower_is_better,

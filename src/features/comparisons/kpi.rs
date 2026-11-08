@@ -4,14 +4,29 @@ use super::models::{ComparisonData, MetricDiff};
 use crate::{
     components::DeltaBadge,
     features::charts::split_unit,
-    format::{format_optional, ValueFormat},
+    format::{format_number, format_optional, ValueFormat},
 };
 
 // One big number of the strip: the comparison value, the change, and the baseline it came from
 #[component]
-pub fn KpiTile(#[props(into)] label: String, diff: MetricDiff, format: ValueFormat) -> Element {
+pub fn KpiTile(
+    #[props(into)] label: String,
+    diff: MetricDiff,
+    format: ValueFormat,
+    // Requests sent by each run, shown as a small chip next to the baseline
+    #[props(default)] sent: Option<MetricDiff>,
+) -> Element {
     let (number, unit) = split_unit(&format_optional(diff.comparison_value, format));
     let baseline = format_optional(diff.baseline_value, format);
+    let sent_text = sent
+        .as_ref()
+        .and_then(|sent| sent.comparison_value)
+        .map(|value| format!("{} sent", format_number(value, 0)));
+    let sent_title = sent
+        .as_ref()
+        .and_then(|sent| sent.baseline_value)
+        .map(|value| format!("Baseline sent {}", format_number(value, 0)))
+        .unwrap_or_default();
 
     rsx! {
         div { class: "group fade-up flex min-w-0 flex-col gap-(--space-2) rounded-(--round-lg) border border-(color:--clr-border) bg-(--clr-surface) px-(--space-4) py-(--space-3) shadow-(--shadow-card)",
@@ -38,6 +53,13 @@ pub fn KpiTile(#[props(into)] label: String, diff: MetricDiff, format: ValueForm
                     "aria-hidden": "true",
                     "→"
                 }
+                if let Some(text) = sent_text {
+                    span {
+                        class: "ml-auto rounded-(--round-full) bg-(--clr-surface-raised) px-(--space-2) py-px tabular-nums text-(color:--clr-text-muted)",
+                        title: "{sent_title}",
+                        "{text}"
+                    }
+                }
             }
         }
     }
@@ -54,6 +76,7 @@ pub fn KpiStrip(data: ComparisonData) -> Element {
                 label: "Throughput",
                 diff: metrics.http_latency.requests_per_second.clone(),
                 format: ValueFormat::PerSecond,
+                sent: Some(metrics.http_latency.total_requests.clone()),
             }
             KpiTile {
                 label: "p95 latency",

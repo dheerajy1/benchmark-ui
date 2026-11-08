@@ -128,6 +128,11 @@ pub fn shorten(text: &str) -> String {
 
 // The value of a field in the run the form was filled from, when it differs from the form now
 fn changed_from(reference: Option<&FormState>, state: &FormState, slot: Slot) -> Option<String> {
+    // The project path picks the run to compare with, so it is never compared itself
+    if slot == Slot::Path {
+        return None;
+    }
+
     let old = slot.get(reference?);
 
     if old == slot.get(state) {
@@ -412,6 +417,17 @@ mod tests {
         let state = FormState::default();
 
         assert_eq!(changed_from(None, &state, Slot::Port), None);
+    }
+
+    #[test]
+    fn the_project_path_is_never_marked() {
+        let mut old = FormState::default();
+        let mut now = FormState::default();
+
+        old.path = "/srv/a".to_string();
+        now.path = "/srv/b".to_string();
+
+        assert_eq!(changed_from(Some(&old), &now, Slot::Path), None);
     }
 
     #[test]

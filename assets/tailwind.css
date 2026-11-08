@@ -751,6 +751,9 @@
   .shrink-0 {
     flex-shrink: 0;
   }
+  .grow {
+    flex-grow: 1;
+  }
   .border-collapse {
     border-collapse: collapse;
   }
@@ -2243,9 +2246,9 @@
       width: calc(var(--spacing) * 28);
     }
   }
-  .md\:w-40 {
+  .md\:w-48 {
     @media (width >= 48rem) {
-      width: calc(var(--spacing) * 40);
+      width: calc(var(--spacing) * 48);
     }
   }
   .md\:flex-1 {
@@ -2596,7 +2599,7 @@
     animation-delay: var(--stagger, 0ms);
   }
   .fade-up {
-    animation: reveal-rise 0.6s var(--ease-out) both;
+    animation: reveal-rise 0.6s var(--ease-out) backwards;
   }
   .draw-in {
     animation: draw-in 1s var(--ease-out) both;
@@ -2688,7 +2691,7 @@
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 @keyframes draw-in {

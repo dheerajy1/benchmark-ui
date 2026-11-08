@@ -63,6 +63,9 @@ pub struct HttpComparison {
     #[serde(default)]
     pub comparison_status: Option<String>,
     pub requests_per_second: MetricDiff,
+    // Missing from an API that does not send it yet
+    #[serde(default)]
+    pub total_requests: MetricDiff,
     pub p50_ms: MetricDiff,
     pub p95_ms: MetricDiff,
     pub p99_ms: MetricDiff,
@@ -185,6 +188,7 @@ pub mod fixtures {
                     baseline_status: Some("completed".to_string()),
                     comparison_status: Some("completed".to_string()),
                     requests_per_second: diff(Some(100.0), Some(120.0), "higher_is_better"),
+                    total_requests: diff(Some(1_000.0), Some(1_200.0), "higher_is_better"),
                     p50_ms: lower(2.0, 2.0),
                     p95_ms: lower(10.0, 9.0),
                     p99_ms: lower(12.0, 11.0),

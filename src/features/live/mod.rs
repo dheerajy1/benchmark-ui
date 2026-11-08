@@ -14,6 +14,7 @@ mod outcome;
 mod phase;
 mod pipeline;
 mod state;
+mod tab_badge;
 mod token;
 mod view;
 

@@ -161,7 +161,7 @@ pub fn WorkloadGroup(
             chips_for(
                 peak,
                 newest.cpu_average,
-                Some(newest.requests_per_second),
+                Some((newest.requests_per_second, newest.completed)),
                 last.memory_peak,
             )
         }

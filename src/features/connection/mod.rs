@@ -1,6 +1,7 @@
 // HTTP access to benchmark-api and the connection feedback shown in the shell
 
 mod client;
+mod environment;
 mod error;
 mod health;
 mod indicator;

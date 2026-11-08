@@ -8,7 +8,10 @@ use super::{
 use crate::{
     components::{Badge, Tone},
     features::charts::Sparkline,
-    format::{format_bytes, format_duration_ms, format_per_second, format_percent, ValueFormat},
+    format::{
+        format_bytes, format_duration_ms, format_number, format_per_second, format_percent,
+        ValueFormat,
+    },
 };
 
 // A phase that has finished and can be opened again
@@ -41,7 +44,8 @@ pub struct ResultCard {
 fn chips_for(
     peak_memory: Option<f64>,
     cpu_average: Option<f64>,
-    throughput: Option<f64>,
+    // The rate and how many requests were sent
+    throughput: Option<(f64, u64)>,
     last_peak: Option<f64>,
 ) -> Vec<Chip> {
     let mut chips = Vec::new();
@@ -58,8 +62,9 @@ fn chips_for(
         chips.push(neutral(format!("CPU average {}", format_percent(average))));
     }
 
-    if let Some(rate) = throughput {
+    if let Some((rate, sent)) = throughput {
         chips.push(neutral(format!("{} average", format_per_second(rate))));
+        chips.push(neutral(format!("{} sent", format_number(sent as f64, 0))));
     }
 
     if let Some((text, tone)) = peak_memory
@@ -93,7 +98,7 @@ pub fn cards_for(view: &LiveState, last: Option<&LastRun>) -> Vec<ResultCard> {
                 chips: chips_for(
                     peak,
                     newest.cpu_average,
-                    Some(newest.requests_per_second),
+                    Some((newest.requests_per_second, newest.completed)),
                     last.and_then(|known| known.memory_peak),
                 ),
                 values: series.iter().map(|point| point.value).collect(),
@@ -215,14 +220,20 @@ mod tests {
 
     #[test]
     fn a_card_states_the_numbers_and_the_change() {
-        let chips = chips_for(Some(110.0), Some(12.0), Some(2_000.0), Some(100.0));
+        let chips = chips_for(
+            Some(110.0),
+            Some(12.0),
+            Some((2_000.0, 45_300)),
+            Some(100.0),
+        );
 
-        assert_eq!(chips.len(), 4);
+        assert_eq!(chips.len(), 5);
         assert!(chips[0].text.starts_with("Peak memory"));
         assert!(chips[1].text.starts_with("CPU average"));
         assert!(chips[2].text.ends_with("average"));
-        assert_eq!(chips[3].text, "+10% peak vs last run");
-        assert_eq!(chips[3].tone, Tone::Danger);
+        assert_eq!(chips[3].text, "45,300 sent");
+        assert_eq!(chips[4].text, "+10% peak vs last run");
+        assert_eq!(chips[4].tone, Tone::Danger);
     }
 
     #[test]

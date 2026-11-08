@@ -311,7 +311,7 @@ pub fn Hero(data: ComparisonData) -> Element {
                                 }
                             }
                         }
-                        div { class: "md:w-40 md:shrink-0 md:text-right",
+                        div { class: "md:w-48 md:shrink-0 md:text-right",
                             DeltaBadge { change: row.change, lower_is_better: row.lower_is_better }
                         }
                     }

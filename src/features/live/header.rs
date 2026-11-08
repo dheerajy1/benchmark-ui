@@ -9,8 +9,8 @@ use crate::{
     components::{button_class, Badge, ButtonVariant, Card, RuntimeTag, StatTile, Tone},
     features::history::runtime_label,
     format::{
-        format_bytes, format_duration_ms, format_per_second, format_percent, path_tail, short_id,
-        MISSING,
+        format_bytes, format_duration_ms, format_number, format_per_second, format_percent,
+        path_tail, short_id, MISSING,
     },
 };
 
@@ -215,7 +215,7 @@ pub fn HeaderCard(
 // Throughput, memory and CPU of the run as they are now
 struct HudValues {
     throughput: String,
-    throughput_hint: &'static str,
+    throughput_hint: String,
     memory: String,
     memory_hint: String,
     cpu: String,
@@ -247,7 +247,7 @@ fn hud_values(sample: Option<&SamplePoint>) -> HudValues {
     let Some(sample) = sample else {
         return HudValues {
             throughput: MISSING.to_string(),
-            throughput_hint: "waiting for the workload",
+            throughput_hint: "waiting for the workload".to_string(),
             memory: MISSING.to_string(),
             memory_hint: String::new(),
             cpu: MISSING.to_string(),
@@ -259,7 +259,10 @@ fn hud_values(sample: Option<&SamplePoint>) -> HudValues {
 
     HudValues {
         throughput: format_per_second(sample.requests_per_second),
-        throughput_hint: "running average",
+        throughput_hint: format!(
+            "running average · {} sent",
+            format_number(sample.completed as f64, 0)
+        ),
         memory: sample
             .rss_bytes
             .map_or_else(|| MISSING.to_string(), |bytes| format_bytes(bytes as f64)),

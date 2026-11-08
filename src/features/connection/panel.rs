@@ -54,6 +54,7 @@ pub fn ApiErrorPanel(
             title: if title.is_empty() { error.title() } else { title },
             message: error.description(),
             detail: error.details_text(&shown_at),
+            copy_extra: super::environment::environment_text(),
             kind: error.kind(),
             retryable,
             note,

@@ -161,7 +161,7 @@ pub fn mode_title(mode: &str) -> &'static str {
     }
 }
 
-fn phase_text(phase: &str) -> &'static str {
+pub fn phase_text(phase: &str) -> &'static str {
     match phase {
         "started" => "building and starting",
         "sampling" => "sampling memory and CPU",

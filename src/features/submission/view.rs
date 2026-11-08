@@ -8,7 +8,7 @@ use super::{
     estimate::{custom_plan, fetch_stage_averages, panel_parts, target_plan, StageAverages},
     form::{validate, FieldError, FormState},
     paste_modal::{PasteModal, PASTE_REQUEST},
-    prefill::{prefill_for, Prefill},
+    prefill::{prefill_for, reference_for, Prefill},
     previous_runs::{cards, format_when, now_epoch_ms, PreviousRuns},
     run_panel::RunPanel,
     skeleton::TargetSkeleton,
@@ -230,6 +230,35 @@ pub fn Submission(#[props(default)] from_run: Option<String>, target: String) ->
                 Err(error) => history.set(Loaded::Failed(error)),
             }
         });
+    });
+
+    // The path typed in the custom form, the reference follows it once typing pauses
+    let typed_path = use_memo(move || form().path.trim().to_string());
+    let reference_path = use_resource(move || {
+        let path = typed_path();
+
+        async move {
+            TimeoutFuture::new(400).await;
+            path
+        }
+    });
+
+    // Until the form is filled from a run, it is compared with the newest run of the typed
+    // project path, or with the newest run of all while none matches
+    use_effect(move || {
+        if banner.read().is_some() {
+            return;
+        }
+
+        let Some(path) = reference_path.read().clone() else {
+            return;
+        };
+
+        let next = reference_for(&all_runs.read(), &path);
+
+        if *reference.peek() != next {
+            reference.set(next);
+        }
     });
 
     // Fills the form from the run that was opened with "Use these settings", once the targets and

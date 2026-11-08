@@ -6,8 +6,8 @@ use crate::{
     components::{button_class, ButtonVariant, Card, CardHeader, StatTile},
     features::run_detail::BenchmarkResult,
     format::{
-        format_bytes, format_duration_ms, format_latency_ms, format_per_second, format_percent,
-        short_id, MISSING,
+        format_bytes, format_duration_ms, format_latency_ms, format_number, format_per_second,
+        format_percent, short_id, MISSING,
     },
 };
 
@@ -67,6 +67,11 @@ fn FinalTiles(result: BenchmarkResult) -> Element {
         || MISSING.to_string(),
         |latency| format_per_second(latency.requests_per_second),
     );
+    let sent = metrics
+        .http_latency
+        .as_ref()
+        .map(|latency| format!("{} sent", format_number(latency.total_requests as f64, 0)))
+        .unwrap_or_default();
     let p95 = metrics
         .http_latency
         .as_ref()
@@ -91,7 +96,11 @@ fn FinalTiles(result: BenchmarkResult) -> Element {
 
     rsx! {
         div { class: "grid grid-cols-2 gap-(--space-3) md:grid-cols-3 xl:grid-cols-6",
-            StatTile { label: "Throughput", value: throughput }
+            StatTile {
+                label: "Throughput",
+                value: throughput,
+                hint: sent,
+            }
             StatTile { label: "p95 latency", value: p95 }
             StatTile { label: "Peak memory", value: memory }
             StatTile { label: "CPU average", value: cpu }

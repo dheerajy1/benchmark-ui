@@ -1,10 +1,10 @@
 use dioxus::prelude::*;
 
-use super::state::{LiveState, Stage, StageState, Terminal};
+use super::state::{mode_title, phase_text, LiveState, Stage, StageState, Terminal};
 use crate::{
     components::Card,
     features::submission::{last_for, StageAverages},
-    format::{format_duration_ms, humanize_code},
+    format::{format_bytes, format_duration_ms, humanize_code},
 };
 
 // Where a step is, one visual state per marker
@@ -87,6 +87,14 @@ struct Delta {
     class: &'static str,
 }
 
+// One workspace mode under the Measure workspace step
+#[derive(Debug, Clone, PartialEq)]
+struct SubRow {
+    label: &'static str,
+    phase: Phase,
+    detail: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct Row {
     label: &'static str,
@@ -98,6 +106,52 @@ struct Row {
     // The duration of a step that finished well
     finished_ms: Option<u64>,
     change: Option<Delta>,
+    // The workspace modes the run has reported, only on the Measure workspace step
+    subs: Vec<SubRow>,
+}
+
+// The modes of a run in the order they ran. A mode that never finished takes the state of the
+// step, so a stopped run does not keep a spinner.
+fn workspace_subs(state: &LiveState, step: Phase) -> Vec<SubRow> {
+    state
+        .workspace_modes()
+        .iter()
+        .map(|live| {
+            let workspace = Some(live.workspace.clone());
+            let peak = live
+                .points
+                .iter()
+                .filter_map(|point| point.peak_rss_bytes)
+                .max()
+                .map(|bytes| format!("peak {}", format_bytes(bytes as f64)));
+
+            let (phase, detail) = match (live.phase.as_str(), live.status.as_deref()) {
+                ("finished", Some(status)) if is_bad(status) => {
+                    (Phase::Failed, join(workspace, Some(humanize_code(status))))
+                }
+                ("finished", Some(status)) if !is_good(status) => {
+                    (Phase::Neutral, join(workspace, Some(humanize_code(status))))
+                }
+                ("finished", _) => (Phase::Done, join(workspace, peak)),
+                (phase, _) => {
+                    let shown = match step {
+                        Phase::Running => Phase::Running,
+                        Phase::Failed => Phase::Failed,
+                        Phase::Cancelled => Phase::Cancelled,
+                        _ => Phase::Neutral,
+                    };
+
+                    (shown, join(workspace, Some(phase_text(phase).to_string())))
+                }
+            };
+
+            SubRow {
+                label: mode_title(&live.mode),
+                phase,
+                detail,
+            }
+        })
+        .collect()
 }
 
 // `+3.20 s vs last`, `-120 ms vs last`, or `same as last` when the difference is small. A
@@ -246,6 +300,19 @@ fn row_for(state: &LiveState, stage: Stage, clock_ms: u64) -> Row {
         _ => None,
     };
 
+    let subs = if stage == Stage::Workspaces {
+        workspace_subs(state, phase)
+    } else {
+        Vec::new()
+    };
+
+    // The modes below say where the step is, so the step does not repeat it
+    let detail = if phase == Phase::Running && !subs.is_empty() {
+        state.is_cancelling().then(|| "Stopping".to_string())
+    } else {
+        detail
+    };
+
     Row {
         label: stage.label(),
         phase,
@@ -254,6 +321,7 @@ fn row_for(state: &LiveState, stage: Stage, clock_ms: u64) -> Row {
         bar,
         finished_ms,
         change: None,
+        subs,
     }
 }
 
@@ -273,9 +341,11 @@ fn StageRow(row: Row, last: bool) -> Element {
     let word = row.phase.word();
     let label_class = row.phase.label_class();
     let line_class = connector_class(row.phase);
+    // Spare height of the card is shared by the steps, the last one stays at the bottom
+    let grow = if last { "" } else { "grow" };
 
     rsx! {
-        li { class: "relative flex items-start gap-(--space-3) px-(--space-4) py-(--space-3)",
+        li { class: "relative flex items-start gap-(--space-3) px-(--space-4) py-(--space-3) {grow}",
             if !last {
                 span {
                     class: "absolute w-0.5 {line_class}",
@@ -308,6 +378,39 @@ fn StageRow(row: Row, last: bool) -> Element {
                 if let Some(detail) = row.detail.clone() {
                     span { class: "break-words text-(length:--fs-xs) text-(color:--clr-text-muted)",
                         "{detail}"
+                    }
+                }
+                if !row.subs.is_empty() {
+                    ul { class: "mt-(--space-1) flex flex-col gap-(--space-2)",
+                        for (index , sub) in row.subs.iter().enumerate() {
+                            {
+                                let marker = sub.phase.marker_class();
+                                let glyph = sub.phase.glyph();
+                                let word = sub.phase.word();
+                                let label_class = sub.phase.label_class();
+
+                                rsx! {
+                                    li { key: "{index}", class: "flex items-start gap-(--space-2)",
+                                        span {
+                                            class: "mt-px flex size-4 shrink-0 items-center justify-center rounded-(--round-full) text-(length:--fs-2xs) font-(weight:--fw-semibold) {marker}",
+                                            "aria-hidden": "true",
+                                            "{glyph}"
+                                        }
+                                        div { class: "flex min-w-0 flex-col",
+                                            span { class: "text-(length:--fs-xs) font-(weight:--fw-medium) {label_class}",
+                                                "{sub.label}"
+                                                span { class: "sr-only", " · {word}" }
+                                            }
+                                            if let Some(detail) = sub.detail.clone() {
+                                                span { class: "break-words text-(length:--fs-2xs) text-(color:--clr-text-muted)",
+                                                    "{detail}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 if let Some(bar) = row.bar.clone() {
@@ -374,7 +477,7 @@ pub fn Pipeline(
     let last_index = rows.len().saturating_sub(1);
 
     rsx! {
-        Card {
+        Card { class: "flex flex-col",
             div { class: "flex items-center gap-(--space-3) px-(--space-4) pt-(--space-4) pb-(--space-2)",
                 h3 { class: "text-(length:--fs-base) font-(weight:--fw-semibold) text-(color:--clr-text)",
                     "Pipeline"
@@ -393,7 +496,7 @@ pub fn Pipeline(
                     }
                 }
             }
-            ol { class: "flex flex-col",
+            ol { class: "flex flex-1 flex-col",
                 for (index , row) in rows.into_iter().enumerate() {
                     StageRow {
                         key: "{index}",
@@ -704,6 +807,7 @@ mod tests {
             bar: None,
             finished_ms: None,
             change: None,
+            subs: Vec::new(),
         }
     }
 
@@ -764,5 +868,72 @@ mod tests {
             row_for(&state, Stage::Saving, 0).detail.as_deref(),
             Some("Partial result saved")
         );
+    }
+
+    fn workspace_phase(state: &mut LiveState, seq: u64, mode: &str, phase: &str, status: Value) {
+        feed(
+            state,
+            seq,
+            seq * 100,
+            "workspace.phase",
+            json!({"workspace": "subscriber", "mode": mode, "phase": phase, "status": status}),
+        );
+    }
+
+    #[test]
+    fn the_workspace_step_lists_the_modes_the_run_reported() {
+        let mut state = LiveState::new("r".to_string());
+
+        accepted(&mut state, Value::Null);
+        feed(
+            &mut state,
+            2,
+            100,
+            "stage.started",
+            json!({"stage": "workspaces"}),
+        );
+
+        assert!(row_for(&state, Stage::Workspaces, 0).subs.is_empty());
+
+        workspace_phase(&mut state, 3, "native", "started", Value::Null);
+        workspace_phase(&mut state, 4, "native", "finished", json!("success"));
+        workspace_phase(&mut state, 5, "docker", "sampling", Value::Null);
+
+        let row = row_for(&state, Stage::Workspaces, 0);
+
+        assert_eq!(row.subs.len(), 2);
+        assert_eq!(row.subs[0].label, "Native");
+        assert_eq!(row.subs[0].phase, Phase::Done);
+        assert_eq!(row.subs[1].label, "Docker");
+        assert_eq!(row.subs[1].phase, Phase::Running);
+        // The modes say where the step is, so the step has no line of its own
+        assert_eq!(row.detail, None);
+    }
+
+    #[test]
+    fn a_mode_that_was_running_when_the_run_failed_is_marked_failed() {
+        let mut state = LiveState::new("r".to_string());
+
+        accepted(&mut state, Value::Null);
+        feed(
+            &mut state,
+            2,
+            100,
+            "stage.started",
+            json!({"stage": "workspaces"}),
+        );
+        workspace_phase(&mut state, 3, "native", "started", Value::Null);
+        feed(
+            &mut state,
+            4,
+            400,
+            "run.failed",
+            json!({"stage": "workspaces", "message": "boom", "persisted": false}),
+        );
+
+        let row = row_for(&state, Stage::Workspaces, 0);
+
+        assert_eq!(row.phase, Phase::Failed);
+        assert_eq!(row.subs[0].phase, Phase::Failed);
     }
 }

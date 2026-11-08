@@ -84,6 +84,8 @@ pub fn ErrorState(
     #[props(default = ErrorKind::Red)] kind: ErrorKind,
     // False hides `Try again`, for errors that only a rebuild can fix
     #[props(default = true)] retryable: bool,
+    // Lines added to the text of `Copy details` only, not to the folded technical details
+    #[props(into, default)] copy_extra: String,
     // Small line under the message, for example the auto retry countdown
     #[props(into, default)] note: String,
     // Extra buttons after the standard ones, for example links to other pages
@@ -94,7 +96,11 @@ pub fn ErrorState(
     let copy_class = button_class(ButtonVariant::Secondary);
     let toasts = use_toasts();
     let tile_class = kind.tile_class();
-    let detail_for_copy = detail.clone();
+    let detail_for_copy = if copy_extra.is_empty() {
+        detail.clone()
+    } else {
+        format!("{detail}\n{copy_extra}")
+    };
 
     rsx! {
         div {
