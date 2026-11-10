@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use super::{
+    build_suggestions::{BuildChips, BuildSuggestion},
     fields::{MiniBlock, Slot, StepperField, SwitchBlock, TextField, WasMark},
     form::{error_for, Field, FieldError, FormState, WorkloadMode},
     workspace::{EnvSource, ENV_FILE_PLACEHOLDER},
@@ -64,6 +65,9 @@ pub fn CustomForm(
     form: Signal<FormState>,
     reference: Signal<Option<FormState>>,
     errors: Vec<FieldError>,
+    // Builds of past successful runs of the typed path, and whether the history is still loading
+    suggestions: Vec<BuildSuggestion>,
+    suggestions_loading: bool,
     running: bool,
 ) -> Element {
     let mut form = form;
@@ -103,6 +107,63 @@ pub fn CustomForm(
                     hint: "Absolute path, for example /home/me/projects/my-api",
                     error: error_for(&errors, Field::Path),
                     disabled: running,
+                }
+            }
+        }
+
+        Card {
+            CardHeader {
+                title: "Build",
+                subtitle: "The command that builds the project. The artifact size is measured from its output once it finishes.",
+            }
+            div { class: "flex flex-col gap-(--space-3) p-(--space-4)",
+                TextField {
+                    form,
+                    reference,
+                    slot: Slot::BuildCommand,
+                    label: "Build command",
+                    hint: "Required. Run in the project path, for example bun run build or cargo xtask build --release",
+                    placeholder: "bun run build",
+                    error: error_for(&errors, Field::BuildCommand),
+                    disabled: running,
+                }
+                BuildChips {
+                    form,
+                    suggestions,
+                    loading: suggestions_loading,
+                    disabled: running,
+                }
+                TextField {
+                    form,
+                    reference,
+                    slot: Slot::BuildOutputDir,
+                    label: "Build output folder",
+                    hint: "Optional, inside the project. Left empty, dist is measured, or target for a Rust project.",
+                    placeholder: "dist, or target/release",
+                    error: error_for(&errors, Field::BuildOutputDir),
+                    disabled: running,
+                }
+                div { class: "{GRID}",
+                    TextField {
+                        form,
+                        reference,
+                        slot: Slot::CleanupCommand,
+                        label: "Cleanup command",
+                        hint: "Optional. Runs in the project path at the very end of the run, for example docker system prune -af. If it fails, the run is still done.",
+                        placeholder: "docker system prune -af",
+                        disabled: running,
+                    }
+                    TextField {
+                        form,
+                        reference,
+                        slot: Slot::CleanupTimeout,
+                        label: "Cleanup timeout (seconds)",
+                        hint: "Optional, 1 to 3600. Left empty, 120 seconds.",
+                        placeholder: "120",
+                        numeric: true,
+                        error: error_for(&errors, Field::CleanupTimeout),
+                        disabled: running,
+                    }
                 }
             }
         }
@@ -431,6 +492,27 @@ pub fn CustomForm(
                     hint: "Use {ENV_FILE_PLACEHOLDER} where the env file path goes, for example --env-file {ENV_FILE_PLACEHOLDER}. Required when an env is given.",
                     placeholder: "docker run -d --env-file {ENV_FILE_PLACEHOLDER} --name recordlog-subscriber recordlog-subscriber:latest",
                     disabled: running,
+                }
+                div { class: "{GRID}",
+                    TextField {
+                        form,
+                        reference,
+                        slot: Slot::DockerCleanup,
+                        label: "Cleanup command",
+                        hint: "Optional. Runs in the project path at the very end of the run, for example docker rmi recordlog-subscriber:latest",
+                        placeholder: "docker rmi recordlog-subscriber:latest",
+                        disabled: running,
+                    }
+                    TextField {
+                        form,
+                        reference,
+                        slot: Slot::DockerCleanupTimeout,
+                        label: "Cleanup timeout (seconds)",
+                        hint: "Optional, 1 to 3600. Left empty, 120 seconds.",
+                        placeholder: "120",
+                        numeric: true,
+                        disabled: running,
+                    }
                 }
             }
 

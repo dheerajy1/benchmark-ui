@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 pub struct ConfigurationEntry {
     pub run_id: String,
     pub created_at: String,
+    // done, failed or cancelled, empty when the API did not say
+    #[serde(default)]
+    pub status: String,
     pub path: String,
     pub startup: Option<StartupSummary>,
     pub recorded: bool,
@@ -40,8 +43,28 @@ pub struct RecordedConfiguration {
     pub target_id: Option<String>,
     pub target_name: Option<String>,
     pub target_path: String,
+    // Null for a run stored before the build command was given by the person
+    #[serde(default)]
+    pub build: Option<BuildSummary>,
+    // Null for a run without a cleanup command, and for runs stored before it existed
+    #[serde(default)]
+    pub cleanup: Option<CleanupSummary>,
     pub startup: Option<StartupSummary>,
     pub workload: Option<WorkloadSummary>,
+}
+
+// The build command a run used and the output folder it named, null when the default was used
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct BuildSummary {
+    pub command: String,
+    pub output_dir: Option<String>,
+}
+
+// The cleanup command a run used and the seconds it was allowed to take
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct CleanupSummary {
+    pub command: String,
+    pub timeout_seconds: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]

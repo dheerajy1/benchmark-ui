@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use super::{
-    metrics::{newest, series_points, short_day, TrendMetric},
+    metrics::{newest, requests_chip, series_points, short_day, TrendMetric},
     models::TrendPoint,
 };
 use crate::{
@@ -19,11 +19,21 @@ fn ChartCard(
     #[props(into)] title: String,
     #[props(into)] subtitle: String,
     #[props(into, default)] class: String,
+    // Small text at the right end of the header, empty for none
+    #[props(into, default)] chip: String,
     children: Element,
 ) -> Element {
+    let trailing = (!chip.is_empty()).then(|| {
+        rsx! {
+            span { class: "shrink-0 text-(length:--fs-xs) text-(color:--clr-text-muted) tabular-nums",
+                "{chip}"
+            }
+        }
+    });
+
     rsx! {
         Card { class: "fade-up {class}",
-            CardHeader { title, subtitle }
+            CardHeader { title, subtitle, trailing }
             div { class: "p-(--space-4) pb-(--space-3)", {children} }
         }
     }
@@ -161,6 +171,7 @@ pub fn OverviewCharts(trends: Vec<TrendPoint>, latest_run_id: String) -> Element
                 title: "Throughput",
                 subtitle: "Requests per second over the last 12 runs.",
                 class: "lg:col-span-2",
+                chip: requests_chip(&trends),
                 TrendChart {
                     title: "Throughput",
                     points: throughput,

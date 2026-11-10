@@ -100,6 +100,24 @@ fn custom_fill(entry: &ConfigurationEntry, removed_target_notice: Option<String>
         ..FormState::default()
     };
 
+    if let Some(build) = entry
+        .configuration
+        .as_ref()
+        .and_then(|configuration| configuration.build.as_ref())
+    {
+        form.build_command = build.command.clone();
+        form.build_output_dir = build.output_dir.clone().unwrap_or_default();
+    }
+
+    if let Some(cleanup) = entry
+        .configuration
+        .as_ref()
+        .and_then(|configuration| configuration.cleanup.as_ref())
+    {
+        form.cleanup_command = cleanup.command.clone();
+        form.cleanup_timeout = cleanup.timeout_seconds.to_string();
+    }
+
     if let Some(startup) = &entry.startup {
         form.startup_enabled = startup.program.is_some() || startup.readiness.is_some();
         form.program = startup.program.clone().unwrap_or_default();

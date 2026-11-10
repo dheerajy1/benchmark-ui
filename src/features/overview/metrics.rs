@@ -1,7 +1,7 @@
 use super::models::TrendPoint;
 use crate::{
     features::charts::{ChartTone, SeriesPoint},
-    format::{date_part, format_timestamp, ValueFormat},
+    format::{date_part, format_number, format_timestamp, ValueFormat, MISSING},
 };
 
 // How many of the newest runs the tiles and charts show
@@ -94,6 +94,23 @@ pub fn newest(trends: &[TrendPoint]) -> &[TrendPoint] {
     &trends[..trends.len().min(RECENT_RUNS)]
 }
 
+// The average number of requests of the newest runs that sent any, for the Throughput chip.
+// It stays a dash with the same words when no run has a count, so the chip never moves.
+pub fn requests_chip(trends: &[TrendPoint]) -> String {
+    let counts: Vec<u64> = newest(trends)
+        .iter()
+        .filter_map(|point| point.total_requests)
+        .collect();
+
+    if counts.is_empty() {
+        return format!("{MISSING} requests avg");
+    }
+
+    let average = counts.iter().sum::<u64>() as f64 / counts.len() as f64;
+
+    format!("{} requests avg", format_number(average, 0))
+}
+
 // "2026-10-08T05:11:22Z" becomes "10-08", short enough to label every bar of a run chart
 pub fn short_day(created_at: &str) -> String {
     created_at.get(5..10).unwrap_or(created_at).to_string()
@@ -112,8 +129,29 @@ mod tests {
             memory_peak_bytes: None,
             cpu_average_percent: None,
             requests_per_second: rps,
+            total_requests: rps.map(|_| 1000),
             p95_ms: p95,
         }
+    }
+
+    #[test]
+    fn the_requests_chip_averages_the_runs_that_sent_requests() {
+        let mut first = point("a", "2026-10-08T05:00:00.000Z", Some(1.0), None);
+        let mut second = point("b", "2026-10-07T05:00:00.000Z", Some(1.0), None);
+        let none = point("c", "2026-10-06T05:00:00.000Z", None, None);
+
+        first.total_requests = Some(1000);
+        second.total_requests = Some(1400);
+
+        assert_eq!(requests_chip(&[first, second, none]), "1,200 requests avg");
+    }
+
+    #[test]
+    fn the_requests_chip_keeps_its_words_without_a_count() {
+        let none = point("c", "2026-10-06T05:00:00.000Z", None, None);
+
+        assert_eq!(requests_chip(&[none]), format!("{MISSING} requests avg"));
+        assert_eq!(requests_chip(&[]), format!("{MISSING} requests avg"));
     }
 
     #[test]

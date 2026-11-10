@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::models::{
-    BenchmarkRequest, CommandRequest, ReadinessRequest, StartupRequest, WorkloadRequest,
+    BenchmarkRequest, BuildRequest, CleanupRequest, CommandRequest, ReadinessRequest,
+    StartupRequest, WorkloadRequest,
 };
 use super::workspace::{self, WorkspaceForm};
 
@@ -23,6 +24,9 @@ pub enum WorkloadMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
     Path,
+    BuildCommand,
+    BuildOutputDir,
+    CleanupTimeout,
     Program,
     Host,
     Port,
@@ -47,6 +51,14 @@ pub struct FieldError {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FormState {
     pub path: String,
+    // The build command and the folder inside the project that holds its output, empty folder
+    // means the API's default
+    pub build_command: String,
+    pub build_output_dir: String,
+    // Optional command that runs in the project when the run is over, and how many seconds it
+    // may take. An empty command means no cleanup, an empty timeout means the API's default.
+    pub cleanup_command: String,
+    pub cleanup_timeout: String,
     pub startup_enabled: bool,
     pub program: String,
     pub args: String,
@@ -69,6 +81,10 @@ impl Default for FormState {
     fn default() -> Self {
         Self {
             path: String::new(),
+            build_command: String::new(),
+            build_output_dir: String::new(),
+            cleanup_command: String::new(),
+            cleanup_timeout: String::new(),
             startup_enabled: false,
             program: String::new(),
             args: String::new(),
@@ -105,6 +121,15 @@ fn valid_url_path(value: &str) -> bool {
         && !value
             .chars()
             .any(|character| character.is_whitespace() || character.is_control())
+}
+
+// Empty is fine, it means the default. Anything else must stay inside the project.
+fn valid_output_dir(value: &str) -> bool {
+    value.is_empty()
+        || (!value.starts_with('/')
+            && !value.starts_with('\\')
+            && !value.split(['/', '\\']).any(|part| part == "..")
+            && !value.chars().any(char::is_control))
 }
 
 fn valid_header_name(name: &str) -> bool {
@@ -181,6 +206,48 @@ pub fn validate(state: &FormState) -> Result<BenchmarkRequest, Vec<FieldError>> 
     let path = state.path.trim().to_string();
     if path.is_empty() {
         fail(Field::Path, "Enter the path of the project to benchmark.");
+    }
+
+    let build_command = state.build_command.trim().to_string();
+    if build_command.is_empty() {
+        fail(
+            Field::BuildCommand,
+            "Enter the command that builds the project.",
+        );
+    }
+
+    let build_output_dir = state.build_output_dir.trim().to_string();
+    if !valid_output_dir(&build_output_dir) {
+        fail(
+            Field::BuildOutputDir,
+            "Use a folder inside the project, for example dist or target/release.",
+        );
+    }
+
+    // An empty command is no cleanup, so the timeout only matters when there is a command
+    let mut cleanup = None;
+    let cleanup_command = state.cleanup_command.trim().to_string();
+    if !cleanup_command.is_empty() {
+        let timeout = state.cleanup_timeout.trim();
+        let timeout_seconds = if timeout.is_empty() {
+            None
+        } else {
+            match timeout.parse::<u64>() {
+                Ok(seconds) if (1..=3600).contains(&seconds) => Some(seconds),
+                _ => {
+                    fail(
+                        Field::CleanupTimeout,
+                        "Enter a whole number of seconds from 1 to 3600.",
+                    );
+                    None
+                }
+            }
+        };
+
+        cleanup = Some(CleanupRequest {
+            command: cleanup_command,
+            timeout_seconds,
+        });
     }
 
     let mut startup = None;
@@ -321,6 +388,11 @@ pub fn validate(state: &FormState) -> Result<BenchmarkRequest, Vec<FieldError>> 
 
     Ok(BenchmarkRequest {
         path,
+        build: BuildRequest {
+            command: build_command,
+            output_dir: (!build_output_dir.is_empty()).then_some(build_output_dir),
+        },
+        cleanup,
         startup,
         workload,
         workspaces,
@@ -334,6 +406,7 @@ mod tests {
     fn complete_state() -> FormState {
         FormState {
             path: " /home/me/api ".to_string(),
+            build_command: " bun run build ".to_string(),
             startup_enabled: true,
             program: "bun".to_string(),
             args: "run  start".to_string(),
@@ -347,15 +420,18 @@ mod tests {
     }
 
     #[test]
-    fn only_the_path_is_required() {
+    fn only_the_path_and_the_build_command_are_required() {
         let state = FormState {
             path: "/home/me/api".to_string(),
+            build_command: "cargo xtask build".to_string(),
             ..FormState::default()
         };
 
         let request = validate(&state).expect("valid");
 
         assert_eq!(request.path, "/home/me/api");
+        assert_eq!(request.build.command, "cargo xtask build");
+        assert_eq!(request.build.output_dir, None);
         assert!(request.startup.is_none());
         assert!(request.workload.is_none());
     }
@@ -393,6 +469,113 @@ mod tests {
         let errors = validate(&FormState::default()).expect_err("invalid");
 
         assert!(!error_for(&errors, Field::Path).is_empty());
+    }
+
+    #[test]
+    fn an_empty_cleanup_command_sends_no_cleanup() {
+        let state = FormState {
+            cleanup_command: "   ".to_string(),
+            cleanup_timeout: "not a number".to_string(),
+            ..complete_state()
+        };
+
+        assert_eq!(validate(&state).expect("valid").cleanup, None);
+    }
+
+    #[test]
+    fn a_cleanup_command_is_sent_with_its_optional_timeout() {
+        let state = FormState {
+            cleanup_command: " docker system prune -af ".to_string(),
+            ..complete_state()
+        };
+
+        assert_eq!(
+            validate(&state).expect("valid").cleanup,
+            Some(CleanupRequest {
+                command: "docker system prune -af".to_string(),
+                timeout_seconds: None,
+            })
+        );
+
+        let state = FormState {
+            cleanup_timeout: " 300 ".to_string(),
+            ..state
+        };
+
+        assert_eq!(
+            validate(&state)
+                .expect("valid")
+                .cleanup
+                .and_then(|cleanup| cleanup.timeout_seconds),
+            Some(300)
+        );
+    }
+
+    #[test]
+    fn a_cleanup_timeout_must_be_from_1_to_3600_seconds() {
+        for timeout in ["0", "3601", "-5", "1.5", "soon"] {
+            let state = FormState {
+                cleanup_command: "docker system prune -af".to_string(),
+                cleanup_timeout: timeout.to_string(),
+                ..complete_state()
+            };
+
+            let errors = validate(&state).expect_err("invalid");
+
+            assert!(
+                !error_for(&errors, Field::CleanupTimeout).is_empty(),
+                "{timeout}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_build_command_is_required_and_the_folder_stays_inside_the_project() {
+        let state = FormState {
+            build_command: "  ".to_string(),
+            build_output_dir: "../outside".to_string(),
+            ..complete_state()
+        };
+
+        let errors = validate(&state).expect_err("invalid");
+
+        assert!(!error_for(&errors, Field::BuildCommand).is_empty());
+        assert!(!error_for(&errors, Field::BuildOutputDir).is_empty());
+
+        for folder in ["/abs", "a/../b", "\\share"] {
+            let state = FormState {
+                build_output_dir: folder.to_string(),
+                ..complete_state()
+            };
+
+            assert!(validate(&state).is_err(), "{folder}");
+        }
+
+        for folder in ["", "dist", "target/release", "./dist"] {
+            let state = FormState {
+                build_output_dir: folder.to_string(),
+                ..complete_state()
+            };
+
+            assert!(validate(&state).is_ok(), "{folder}");
+        }
+    }
+
+    #[test]
+    fn the_build_folder_is_sent_only_when_typed() {
+        let state = FormState {
+            build_output_dir: " target/release ".to_string(),
+            ..complete_state()
+        };
+
+        let json = serde_json::to_value(validate(&state).expect("valid")).unwrap();
+
+        assert_eq!(json["build"]["command"], "bun run build");
+        assert_eq!(json["build"]["output_dir"], "target/release");
+
+        let json = serde_json::to_value(validate(&complete_state()).expect("valid")).unwrap();
+
+        assert!(json["build"].get("output_dir").is_none());
     }
 
     #[test]
@@ -522,6 +705,7 @@ mod tests {
     fn the_request_matches_a_hand_written_body_with_headers() {
         let state = FormState {
             path: "/home/ubuntu/dev/vs-code/jobs-api-gateway".to_string(),
+            build_command: "bun run build".to_string(),
             startup_enabled: true,
             program: "bun".to_string(),
             args: "run start".to_string(),
@@ -546,6 +730,7 @@ mod tests {
             json,
             serde_json::json!({
                 "path": "/home/ubuntu/dev/vs-code/jobs-api-gateway",
+                "build": { "command": "bun run build" },
                 "startup": {
                     "command": { "program": "bun", "args": ["run", "start"] },
                     "readiness": {

@@ -46,7 +46,7 @@ pub struct TimelineRow {
 }
 
 // Every step in run order, and whether this run does it
-fn plan(startup: bool, workload: bool, workspaces: bool) -> Vec<(Stage, bool)> {
+fn plan(startup: bool, workload: bool, workspaces: bool, cleanup: bool) -> Vec<(Stage, bool)> {
     Stage::ALL
         .into_iter()
         .map(|stage| {
@@ -54,6 +54,7 @@ fn plan(startup: bool, workload: bool, workspaces: bool) -> Vec<(Stage, bool)> {
                 Stage::Startup => startup,
                 Stage::Baseline | Stage::Workload => workload,
                 Stage::Workspaces => workspaces,
+                Stage::Cleanup => cleanup,
                 _ => true,
             };
 
@@ -68,6 +69,10 @@ pub fn custom_plan(state: &FormState) -> Vec<(Stage, bool)> {
         state.startup_enabled,
         state.workload_enabled,
         state.workspace.enabled,
+        !state.cleanup_command.trim().is_empty()
+            || (state.workspace.enabled
+                && state.workspace.docker_enabled
+                && !state.workspace.docker_cleanup_command.trim().is_empty()),
     )
 }
 
@@ -77,6 +82,7 @@ pub fn target_plan(target: &TargetView, form: &TargetForm) -> Vec<(Stage, bool)>
         target.startup.is_some(),
         form.has_workload,
         !target.workspaces.is_empty(),
+        false,
     )
 }
 
@@ -185,8 +191,13 @@ fn total_ms(plan: &[(Stage, bool)], averages: &StageAverages) -> Option<u64> {
 }
 
 // The usual total time of a run that is under way, from what its request includes
-pub fn live_total_ms(workload: bool, workspaces: bool, averages: &StageAverages) -> Option<u64> {
-    total_ms(&plan(true, workload, workspaces), averages)
+pub fn live_total_ms(
+    workload: bool,
+    workspaces: bool,
+    cleanup: bool,
+    averages: &StageAverages,
+) -> Option<u64> {
+    total_ms(&plan(true, workload, workspaces, cleanup), averages)
 }
 
 // The estimate for the whole run: the usual time of the steps it does, or `unknown`
@@ -368,9 +379,9 @@ mod tests {
             &[("build", 6_000), ("workload", 30_000), ("saving", 500)],
         );
 
-        assert_eq!(live_total_ms(false, false, &known), Some(6_500));
-        assert_eq!(live_total_ms(true, false, &known), Some(36_500));
-        assert_eq!(live_total_ms(true, true, &averages(0, &[])), None);
+        assert_eq!(live_total_ms(false, false, false, &known), Some(6_500));
+        assert_eq!(live_total_ms(true, false, false, &known), Some(36_500));
+        assert_eq!(live_total_ms(true, true, false, &averages(0, &[])), None);
     }
 
     #[test]

@@ -1,5 +1,7 @@
 use serde::Serialize;
 
+use super::models::CleanupRequest;
+
 // The optional workspace section of POST /api/v1/benchmarks, see docs/api.md in benchmark-api.
 // A workspace is an extra process, for example the recordlog subscriber, that the run measures
 // after the main project, natively and in Docker.
@@ -41,6 +43,9 @@ pub struct WorkspaceForm {
     pub docker_image: String,
     pub docker_container_name: String,
     pub docker_run_command: String,
+    // Optional command that runs in the project path at the end of the run, and its timeout
+    pub docker_cleanup_command: String,
+    pub docker_cleanup_timeout: String,
 }
 
 impl Default for WorkspaceForm {
@@ -65,6 +70,8 @@ impl Default for WorkspaceForm {
             docker_image: String::new(),
             docker_container_name: String::new(),
             docker_run_command: String::new(),
+            docker_cleanup_command: String::new(),
+            docker_cleanup_timeout: String::new(),
         }
     }
 }
@@ -117,6 +124,30 @@ pub struct DockerRequest {
     pub image: String,
     pub container_name: String,
     pub run_command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cleanup: Option<CleanupRequest>,
+}
+
+// An empty command is no cleanup, so the timeout only matters when there is a command
+fn docker_cleanup(form: &WorkspaceForm) -> Result<Option<CleanupRequest>, String> {
+    let command = form.docker_cleanup_command.trim();
+
+    if command.is_empty() {
+        return Ok(None);
+    }
+
+    let timeout = form.docker_cleanup_timeout.trim();
+
+    let timeout_seconds = if timeout.is_empty() {
+        None
+    } else {
+        Some(number("The Docker cleanup timeout", timeout, 3600)?)
+    };
+
+    Ok(Some(CleanupRequest {
+        command: command.to_string(),
+        timeout_seconds,
+    }))
 }
 
 // One message for the whole section, it names the field that is wrong
@@ -236,6 +267,7 @@ pub fn validate(form: &WorkspaceForm) -> Result<Option<WorkspaceRequest>, String
             image: required("the Docker image name", &form.docker_image)?,
             container_name: required("the Docker container name", &form.docker_container_name)?,
             run_command,
+            cleanup: docker_cleanup(form)?,
         })
     } else {
         None
@@ -279,6 +311,72 @@ mod tests {
             docker_run_command: "docker run -d --name sub sub:latest".to_string(),
             ..complete()
         }
+    }
+
+    #[test]
+    fn an_empty_docker_cleanup_sends_nothing() {
+        let form = WorkspaceForm {
+            docker_cleanup_command: "  ".to_string(),
+            docker_cleanup_timeout: "soon".to_string(),
+            ..with_docker()
+        };
+
+        let json = serde_json::to_value(validate(&form).unwrap().unwrap()).unwrap();
+
+        assert!(json["docker"].get("cleanup").is_none());
+    }
+
+    #[test]
+    fn a_docker_cleanup_is_sent_with_its_optional_timeout() {
+        let form = WorkspaceForm {
+            docker_cleanup_command: " docker rmi sub:latest ".to_string(),
+            ..with_docker()
+        };
+
+        let json = serde_json::to_value(validate(&form).unwrap().unwrap()).unwrap();
+
+        assert_eq!(
+            json["docker"]["cleanup"]["command"],
+            "docker rmi sub:latest"
+        );
+        assert!(json["docker"]["cleanup"].get("timeout_seconds").is_none());
+
+        let form = WorkspaceForm {
+            docker_cleanup_timeout: "60".to_string(),
+            ..form
+        };
+
+        let json = serde_json::to_value(validate(&form).unwrap().unwrap()).unwrap();
+
+        assert_eq!(json["docker"]["cleanup"]["timeout_seconds"], 60);
+    }
+
+    #[test]
+    fn a_docker_cleanup_timeout_must_be_from_1_to_3600_seconds() {
+        for timeout in ["0", "3601", "soon"] {
+            let form = WorkspaceForm {
+                docker_cleanup_command: "docker rmi sub:latest".to_string(),
+                docker_cleanup_timeout: timeout.to_string(),
+                ..with_docker()
+            };
+
+            let error = validate(&form).unwrap_err();
+
+            assert!(error.contains("Docker cleanup timeout"), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_docker_cleanup_is_dropped_when_docker_is_off() {
+        let form = WorkspaceForm {
+            docker_enabled: false,
+            docker_cleanup_command: "docker rmi sub:latest".to_string(),
+            ..with_docker()
+        };
+
+        let json = serde_json::to_value(validate(&form).unwrap().unwrap()).unwrap();
+
+        assert!(json.get("docker").is_none() || json["docker"].is_null());
     }
 
     #[test]

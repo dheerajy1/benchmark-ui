@@ -4,7 +4,7 @@ use super::models::{ComparisonData, MetricDiff};
 use crate::{
     components::DeltaBadge,
     features::charts::split_unit,
-    format::{format_number, format_optional, ValueFormat},
+    format::{format_number, format_optional, ValueFormat, MISSING},
 };
 
 // One big number of the strip: the comparison value, the change, and the baseline it came from
@@ -13,19 +13,20 @@ pub fn KpiTile(
     #[props(into)] label: String,
     diff: MetricDiff,
     format: ValueFormat,
-    // Requests sent by each run, shown as a small chip next to the baseline
+    // Requests sent by each run, shown small in "( )" under the number and after the baseline
     #[props(default)] sent: Option<MetricDiff>,
 ) -> Element {
     let (number, unit) = split_unit(&format_optional(diff.comparison_value, format));
     let baseline = format_optional(diff.baseline_value, format);
-    let sent_text = sent
+    let sent_text = sent.as_ref().map(|sent| {
+        format!(
+            "({} requests)",
+            format_optional_count(sent.comparison_value)
+        )
+    });
+    let baseline_sent = sent
         .as_ref()
-        .and_then(|sent| sent.comparison_value)
-        .map(|value| format!("{} sent", format_number(value, 0)));
-    let sent_title = sent
-        .as_ref()
-        .and_then(|sent| sent.baseline_value)
-        .map(|value| format!("Baseline sent {}", format_number(value, 0)))
+        .map(|sent| format!(" ({})", format_optional_count(sent.baseline_value)))
         .unwrap_or_default();
 
     rsx! {
@@ -47,22 +48,25 @@ pub fn KpiTile(
                     span { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)", "{unit}" }
                 }
             }
-            p { class: "flex items-center gap-(--space-1) text-(length:--fs-xs) text-(color:--clr-text-faint)",
-                "baseline {baseline}"
+            if let Some(text) = sent_text {
+                p { class: "-mt-(--space-1) text-(length:--fs-xs) tabular-nums text-(color:--clr-text-faint)",
+                    "{text}"
+                }
+            }
+            p { class: "flex items-center gap-(--space-1) text-(length:--fs-xs) tabular-nums text-(color:--clr-text-faint)",
+                "baseline {baseline}{baseline_sent}"
                 span { class: "inline-block transition-transform duration-200 ease-(--ease-out) group-hover:translate-x-1",
                     "aria-hidden": "true",
                     "→"
                 }
-                if let Some(text) = sent_text {
-                    span {
-                        class: "ml-auto rounded-(--round-full) bg-(--clr-surface-raised) px-(--space-2) py-px tabular-nums text-(color:--clr-text-muted)",
-                        title: "{sent_title}",
-                        "{text}"
-                    }
-                }
             }
         }
     }
+}
+
+// A request count, "—" when the run has none
+fn format_optional_count(value: Option<f64>) -> String {
+    value.map_or_else(|| MISSING.to_string(), |value| format_number(value, 0))
 }
 
 // Four numbers that matter most, repeated from the hero on purpose as big figures
@@ -94,5 +98,16 @@ pub fn KpiStrip(data: ComparisonData) -> Element {
                 format: ValueFormat::DurationMs,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_request_count_shows_a_dash() {
+        assert_eq!(format_optional_count(Some(1000.0)), "1,000");
+        assert_eq!(format_optional_count(None), "—");
     }
 }

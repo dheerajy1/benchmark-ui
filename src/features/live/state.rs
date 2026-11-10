@@ -19,24 +19,26 @@ const MAX_LOG_LINES: usize = 200;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
     Discovery,
-    ArtifactSize,
     Build,
+    ArtifactSize,
     Startup,
     Baseline,
     Workload,
     Workspaces,
+    Cleanup,
     Saving,
 }
 
 impl Stage {
-    pub const ALL: [Stage; 8] = [
+    pub const ALL: [Stage; 9] = [
         Stage::Discovery,
-        Stage::ArtifactSize,
         Stage::Build,
+        Stage::ArtifactSize,
         Stage::Startup,
         Stage::Baseline,
         Stage::Workload,
         Stage::Workspaces,
+        Stage::Cleanup,
         Stage::Saving,
     ];
 
@@ -49,6 +51,7 @@ impl Stage {
             Self::Baseline => "baseline",
             Self::Workload => "workload",
             Self::Workspaces => "workspaces",
+            Self::Cleanup => "cleanup",
             Self::Saving => "saving",
         }
     }
@@ -62,6 +65,7 @@ impl Stage {
             Self::Baseline => "Baseline",
             Self::Workload => "Workload",
             Self::Workspaces => "Measure workspace",
+            Self::Cleanup => "Clean up",
             Self::Saving => "Save result",
         }
     }
@@ -154,6 +158,28 @@ pub struct WorkspaceLive {
     pub points: Vec<WorkspacePoint>,
 }
 
+// One cleanup command of the cleanup step: where it is and how it ended
+#[derive(Debug, Clone, PartialEq)]
+pub struct CleanupStepLive {
+    // "build" or "docker"
+    pub step: String,
+    // The workspace of a docker step
+    pub workspace: Option<String>,
+    // "started" or "finished"
+    pub phase: String,
+    // Only known once it finished
+    pub status: Option<String>,
+    // Why it did not succeed
+    pub message: Option<String>,
+}
+
+pub fn cleanup_label(step: &str) -> &'static str {
+    match step {
+        "docker" => "Docker cleanup",
+        _ => "Build cleanup",
+    }
+}
+
 pub fn mode_title(mode: &str) -> &'static str {
     match mode {
         "docker" => "Docker",
@@ -232,6 +258,8 @@ pub struct Plan {
     pub target_name: Option<String>,
     // How many workspaces the run also measures, 0 when none
     pub workspaces: u64,
+    // Whether the request has a cleanup command
+    pub cleanup: bool,
 }
 
 // One line of the event panel
@@ -285,6 +313,7 @@ pub struct LiveState {
     workspace_live: Option<WorkspaceLive>,
     // The modes that finished before the current one, with their readings
     workspace_done: Vec<WorkspaceLive>,
+    cleanup_steps: Vec<CleanupStepLive>,
     log: Vec<LogLine>,
     terminal: Option<Terminal>,
     recovered: bool,
@@ -311,6 +340,7 @@ impl LiveState {
             dropped_through_seq: 0,
             samples: Vec::new(),
             workspace_live: None,
+            cleanup_steps: Vec::new(),
             workspace_done: Vec::new(),
             log: Vec::new(),
             terminal: None,
@@ -361,6 +391,11 @@ impl LiveState {
     }
 
     // Every workspace mode the run has reported, in the order they ran
+    // The cleanup commands the run has reported, in the order they ran
+    pub fn cleanup_steps(&self) -> &[CleanupStepLive] {
+        &self.cleanup_steps
+    }
+
     pub fn workspace_modes(&self) -> Vec<WorkspaceLive> {
         self.workspace_done
             .iter()
@@ -442,6 +477,11 @@ impl LiveState {
     // Whether the request includes workspaces, known from the first event
     pub fn workspaces_requested(&self) -> Option<bool> {
         self.plan.as_ref().map(|plan| plan.workspaces > 0)
+    }
+
+    // Whether the request includes a cleanup command, known from the first event
+    pub fn cleanup_requested(&self) -> Option<bool> {
+        self.plan.as_ref().map(|plan| plan.cleanup)
     }
 
     // Whether the request includes a workload, known from the first event
@@ -584,6 +624,24 @@ impl LiveState {
                         status: text(data, "status"),
                         points,
                     });
+                }
+            }
+            "cleanup.step" => {
+                if let (Some(step), Some(phase)) = (text(data, "step"), text(data, "phase")) {
+                    let reported = CleanupStepLive {
+                        step,
+                        workspace: text(data, "workspace"),
+                        phase,
+                        status: text(data, "status"),
+                        message: text(data, "message"),
+                    };
+
+                    match self.cleanup_steps.iter_mut().find(|known| {
+                        known.step == reported.step && known.workspace == reported.workspace
+                    }) {
+                        Some(known) => *known = reported,
+                        None => self.cleanup_steps.push(reported),
+                    }
                 }
             }
             "workspace.sample" => {
@@ -770,6 +828,11 @@ fn parse_plan(data: &Value) -> Option<Plan> {
             .get("plan")
             .and_then(|plan| unsigned(plan, "workspaces"))
             .unwrap_or(0),
+        cleanup: data
+            .get("plan")
+            .and_then(|plan| plan.get("cleanup"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     })
 }
 
@@ -852,6 +915,20 @@ fn describe(kind: &str, data: &Value) -> Option<(String, Tone)> {
                     format!("{workspace} · {mode} {}", phase_text(phase)),
                     Tone::Neutral,
                 )),
+            }
+        }
+        "cleanup.step" => {
+            let label = cleanup_label(&text(data, "step")?);
+            let place = text(data, "workspace")
+                .map(|workspace| format!("{workspace} · "))
+                .unwrap_or_default();
+
+            match (text(data, "phase")?.as_str(), text(data, "status")) {
+                ("finished", Some(status)) => Some((
+                    format!("{place}{label} finished · {}", humanize_code(&status)),
+                    status_tone(&status),
+                )),
+                _ => Some((format!("{place}{label} started"), Tone::Neutral)),
             }
         }
         "run.cancelling" => Some((

@@ -72,6 +72,12 @@ pub fn AppShell() -> Element {
         ""
     };
 
+    let shift_motion = if shell.animates() {
+        "transition-[padding] duration-[320ms] ease-(--ease-out)"
+    } else {
+        ""
+    };
+
     rsx! {
         ToastProvider {
             // Ctrl+B pins the sidebar and Ctrl+K focuses the search. The root takes focus, so the
@@ -103,7 +109,7 @@ pub fn AppShell() -> Element {
                     "Skip to content"
                 }
                 Sidebar {}
-                div { class: "flex min-h-screen flex-col transition-[padding] duration-[320ms] ease-(--ease-out) {shift_class}",
+                div { class: "flex min-h-screen flex-col {shift_motion} {shift_class}",
                     TopBar {}
                     main {
                         id: "main",

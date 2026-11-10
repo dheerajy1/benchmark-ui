@@ -9,7 +9,7 @@ use crate::{
         history::{fetch_page, Column, HistoryFilters, RunSummary},
         run_detail::{column_values, window_ending_at},
     },
-    format::ValueFormat,
+    format::{format_number, ValueFormat, MISSING},
 };
 
 const HISTORY_LIMIT: u32 = 100;
@@ -85,6 +85,23 @@ fn aligned_values(
     )
 }
 
+// The average requests the runs of a window sent, "—" when none of them sent any
+fn requests_note(window: &[RunSummary]) -> String {
+    let counts: Vec<u64> = window
+        .iter()
+        .filter_map(|run| run.summary.total_requests)
+        .filter(|count| *count > 0)
+        .collect();
+
+    if counts.is_empty() {
+        return format!("{MISSING} requests avg");
+    }
+
+    let average = counts.iter().sum::<u64>() as f64 / counts.len() as f64;
+
+    format!("{} requests avg", format_number(average, 0))
+}
+
 // Lines of the last runs of each run's target, one tab per measurement. Chart only.
 #[component]
 pub fn TrendsCard(baseline: RunReference, comparison: RunReference, has_docker: bool) -> Element {
@@ -145,6 +162,11 @@ pub fn TrendsCard(baseline: RunReference, comparison: RunReference, has_docker: 
                 let second = window_ending_at(&second, &comparison.run_id);
                 let (baseline_values, comparison_values) = aligned_values(&first, &second, column);
                 let labels = ago_labels(baseline_values.len());
+                let (baseline_note, comparison_note) = if current == Tab::Throughput {
+                    (requests_note(&first), requests_note(&second))
+                } else {
+                    (String::new(), String::new())
+                };
 
                 if baseline_values.len() < 2 {
                     rsx! {
@@ -160,11 +182,13 @@ pub fn TrendsCard(baseline: RunReference, comparison: RunReference, has_docker: 
                                 name: "Baseline".to_string(),
                                 tone: ChartTone::Slate,
                                 values: baseline_values,
+                                note: baseline_note,
                             },
                             CompareSeries {
                                 name: "Comparison".to_string(),
                                 tone: ChartTone::Blue,
                                 values: comparison_values,
+                                note: comparison_note,
                             },
                         ],
                         format,
@@ -215,6 +239,33 @@ mod tests {
             }}"#
         ))
         .expect("parses")
+    }
+
+    fn run_with_requests(id: &str, requests: Option<u64>) -> RunSummary {
+        let sent = requests.map_or("null".to_string(), |count| count.to_string());
+
+        serde_json::from_str(&format!(
+            r#"{{
+                "run_id": "{id}", "status": "done", "display_name": "p",
+                "target": {{ "path": "/p" }}, "discovery": {{ "runtime": "bun" }},
+                "created_at": "2026-10-08T05:11:22Z",
+                "summary": {{ "total_requests": {sent} }}
+            }}"#
+        ))
+        .expect("parses")
+    }
+
+    #[test]
+    fn the_note_averages_the_runs_that_sent_requests() {
+        let window = [
+            run_with_requests("a", Some(1000)),
+            run_with_requests("b", None),
+            run_with_requests("c", Some(0)),
+            run_with_requests("d", Some(1400)),
+        ];
+
+        assert_eq!(requests_note(&window), "1,200 requests avg");
+        assert_eq!(requests_note(&[]), "— requests avg");
     }
 
     #[test]

@@ -11,6 +11,10 @@ const WAS_LIMIT: usize = 28;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slot {
     Path,
+    BuildCommand,
+    BuildOutputDir,
+    CleanupCommand,
+    CleanupTimeout,
     Program,
     Args,
     Host,
@@ -37,6 +41,8 @@ pub enum Slot {
     DockerImage,
     DockerContainer,
     DockerRun,
+    DockerCleanup,
+    DockerCleanupTimeout,
 }
 
 impl Slot {
@@ -45,6 +51,10 @@ impl Slot {
 
         match self {
             Slot::Path => state.path.clone(),
+            Slot::BuildCommand => state.build_command.clone(),
+            Slot::BuildOutputDir => state.build_output_dir.clone(),
+            Slot::CleanupCommand => state.cleanup_command.clone(),
+            Slot::CleanupTimeout => state.cleanup_timeout.clone(),
             Slot::Program => state.program.clone(),
             Slot::Args => state.args.clone(),
             Slot::Host => state.host.clone(),
@@ -71,6 +81,8 @@ impl Slot {
             Slot::DockerImage => workspace.docker_image.clone(),
             Slot::DockerContainer => workspace.docker_container_name.clone(),
             Slot::DockerRun => workspace.docker_run_command.clone(),
+            Slot::DockerCleanup => workspace.docker_cleanup_command.clone(),
+            Slot::DockerCleanupTimeout => workspace.docker_cleanup_timeout.clone(),
         }
     }
 
@@ -79,6 +91,10 @@ impl Slot {
 
         match self {
             Slot::Path => state.path = value,
+            Slot::BuildCommand => state.build_command = value,
+            Slot::BuildOutputDir => state.build_output_dir = value,
+            Slot::CleanupCommand => state.cleanup_command = value,
+            Slot::CleanupTimeout => state.cleanup_timeout = value,
             Slot::Program => state.program = value,
             Slot::Args => state.args = value,
             Slot::Host => state.host = value,
@@ -105,6 +121,8 @@ impl Slot {
             Slot::DockerImage => workspace.docker_image = value,
             Slot::DockerContainer => workspace.docker_container_name = value,
             Slot::DockerRun => workspace.docker_run_command = value,
+            Slot::DockerCleanup => workspace.docker_cleanup_command = value,
+            Slot::DockerCleanupTimeout => workspace.docker_cleanup_timeout = value,
         }
     }
 }
@@ -353,8 +371,12 @@ pub fn MiniBlock(
 mod tests {
     use super::*;
 
-    const ALL: [Slot; 27] = [
+    const ALL: [Slot; 33] = [
         Slot::Path,
+        Slot::BuildCommand,
+        Slot::BuildOutputDir,
+        Slot::CleanupCommand,
+        Slot::CleanupTimeout,
         Slot::Program,
         Slot::Args,
         Slot::Host,
@@ -381,6 +403,8 @@ mod tests {
         Slot::DockerImage,
         Slot::DockerContainer,
         Slot::DockerRun,
+        Slot::DockerCleanup,
+        Slot::DockerCleanupTimeout,
     ];
 
     #[test]

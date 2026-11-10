@@ -21,7 +21,10 @@ use crate::{
         connection::ApiErrorPanel,
         history::{fetch_page, Column, HistoryFilters},
     },
-    format::{format_timestamp, humanize_code, path_tail, relative_time, short_id, ValueFormat},
+    format::{
+        format_number, format_timestamp, humanize_code, path_tail, relative_time, short_id,
+        ValueFormat, MISSING,
+    },
 };
 
 // How long the copy button shows "Copied"
@@ -202,6 +205,18 @@ fn RunHeader(run_id: String, result: BenchmarkResult, created_at: Option<String>
 }
 
 // Everything under the header of a loaded run
+// The requests this run sent, a dash with the same word when it has no workload result, so the
+// Throughput tile never changes its layout
+fn requests_sent(result: &BenchmarkResult) -> String {
+    match &result.metrics.http_latency {
+        Some(latency) => format!(
+            "{} requests",
+            format_number(latency.total_requests as f64, 0)
+        ),
+        None => format!("{MISSING} requests"),
+    }
+}
+
 #[component]
 fn RunBody(run_id: String, result: BenchmarkResult) -> Element {
     let target_path = result.target.path.clone();
@@ -236,6 +251,11 @@ fn RunBody(run_id: String, result: BenchmarkResult) -> Element {
 
     let tiles = TILES.map(|(column, format, tone, lower_is_better)| {
         let values = tile_values(&window, &result, column);
+        let chip = if column == Column::Throughput {
+            requests_sent(&result)
+        } else {
+            String::new()
+        };
         rsx! {
             TrendTile {
                 key: "{column.label()}",
@@ -244,6 +264,7 @@ fn RunBody(run_id: String, result: BenchmarkResult) -> Element {
                 format,
                 tone,
                 lower_is_better,
+                chip,
             }
         }
     });

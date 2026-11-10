@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use super::state::{mode_title, phase_text, LiveState, Stage, StageState, Terminal};
+use super::state::{cleanup_label, mode_title, phase_text, LiveState, Stage, StageState, Terminal};
 use crate::{
     components::Card,
     features::submission::{last_for, StageAverages},
@@ -154,6 +154,48 @@ fn workspace_subs(state: &LiveState, step: Phase) -> Vec<SubRow> {
         .collect()
 }
 
+// The cleanup commands in the order they ran. One that never finished takes the state of the
+// step, so a stopped run does not keep a spinner.
+fn cleanup_subs(state: &LiveState, step: Phase) -> Vec<SubRow> {
+    state
+        .cleanup_steps()
+        .iter()
+        .map(|live| {
+            let workspace = live.workspace.clone();
+
+            let (phase, detail) = match (live.phase.as_str(), live.status.as_deref()) {
+                ("finished", Some(status)) if is_bad(status) => (
+                    Phase::Failed,
+                    join(
+                        workspace,
+                        live.message.clone().or_else(|| Some(humanize_code(status))),
+                    ),
+                ),
+                ("finished", Some(status)) if !is_good(status) => {
+                    (Phase::Neutral, join(workspace, Some(humanize_code(status))))
+                }
+                ("finished", _) => (Phase::Done, workspace),
+                _ => {
+                    let shown = match step {
+                        Phase::Running => Phase::Running,
+                        Phase::Failed => Phase::Failed,
+                        Phase::Cancelled => Phase::Cancelled,
+                        _ => Phase::Neutral,
+                    };
+
+                    (shown, join(workspace, Some("running".to_string())))
+                }
+            };
+
+            SubRow {
+                label: cleanup_label(&live.step),
+                phase,
+                detail,
+            }
+        })
+        .collect()
+}
+
 // `+3.20 s vs last`, `-120 ms vs last`, or `same as last` when the difference is small. A
 // longer time is worse, so it is red and a shorter one is green.
 fn change_vs_last(duration_ms: u64, last_ms: u64) -> Delta {
@@ -204,13 +246,16 @@ fn row_for(state: &LiveState, stage: Stage, clock_ms: u64) -> Row {
                 && state.workload_requested() == Some(false);
             let no_workspace =
                 stage == Stage::Workspaces && state.workspaces_requested() == Some(false);
+            let no_cleanup = stage == Stage::Cleanup && state.cleanup_requested() == Some(false);
 
-            if no_workload || no_workspace {
+            if no_workload || no_workspace || no_cleanup {
                 (
                     Phase::NotRequested,
                     Some(
                         if no_workspace {
                             "No workspace was requested"
+                        } else if no_cleanup {
+                            "No cleanup was requested"
                         } else {
                             "No workload was requested"
                         }
@@ -268,7 +313,7 @@ fn row_for(state: &LiveState, stage: Stage, clock_ms: u64) -> Row {
 
             if is_good(status) {
                 (Phase::Done, detail, time, None)
-            } else if is_bad(status) {
+            } else if is_bad(status) && stage != Stage::Cleanup {
                 (
                     Phase::Failed,
                     join(Some(humanize_code(status)), detail),
@@ -300,10 +345,10 @@ fn row_for(state: &LiveState, stage: Stage, clock_ms: u64) -> Row {
         _ => None,
     };
 
-    let subs = if stage == Stage::Workspaces {
-        workspace_subs(state, phase)
-    } else {
-        Vec::new()
+    let subs = match stage {
+        Stage::Workspaces => workspace_subs(state, phase),
+        Stage::Cleanup => cleanup_subs(state, phase),
+        _ => Vec::new(),
     };
 
     // The modes below say where the step is, so the step does not repeat it
@@ -653,6 +698,111 @@ mod tests {
             Phase::NotRequested
         );
         assert_eq!(row_for(&state, Stage::Build, 0).phase, Phase::Pending);
+    }
+
+    #[test]
+    fn the_cleanup_step_is_only_requested_when_the_plan_says_so() {
+        let mut state = LiveState::new("r".to_string());
+
+        accepted(&mut state, Value::Null);
+
+        let row = row_for(&state, Stage::Cleanup, 0);
+
+        assert_eq!(row.phase, Phase::NotRequested);
+        assert_eq!(row.detail.as_deref(), Some("No cleanup was requested"));
+
+        let mut state = LiveState::new("r".to_string());
+
+        feed(
+            &mut state,
+            1,
+            0,
+            "run.accepted",
+            json!({"target": {"path": "/p"}, "plan": {"startup": true, "workload": null, "cleanup": true}}),
+        );
+
+        assert_eq!(row_for(&state, Stage::Cleanup, 0).phase, Phase::Pending);
+    }
+
+    fn cleanup_step(
+        state: &mut LiveState,
+        seq: u64,
+        step: &str,
+        phase: &str,
+        status: Value,
+        message: Value,
+    ) {
+        feed(
+            state,
+            seq,
+            0,
+            "cleanup.step",
+            json!({
+                "step": step,
+                "workspace": if step == "docker" { json!("subscriber") } else { Value::Null },
+                "phase": phase,
+                "status": status,
+                "message": message,
+            }),
+        );
+    }
+
+    #[test]
+    fn the_cleanup_step_lists_each_command_and_a_failed_one_does_not_stop_the_run() {
+        let mut state = LiveState::new("r".to_string());
+
+        feed(
+            &mut state,
+            1,
+            0,
+            "run.accepted",
+            json!({"target": {"path": "/p"}, "plan": {"startup": true, "workload": null, "cleanup": true}}),
+        );
+        feed(
+            &mut state,
+            2,
+            0,
+            "stage.started",
+            json!({"stage": "cleanup"}),
+        );
+        cleanup_step(&mut state, 3, "build", "started", Value::Null, Value::Null);
+        cleanup_step(
+            &mut state,
+            4,
+            "build",
+            "finished",
+            json!("success"),
+            Value::Null,
+        );
+        cleanup_step(&mut state, 5, "docker", "started", Value::Null, Value::Null);
+        cleanup_step(
+            &mut state,
+            6,
+            "docker",
+            "finished",
+            json!("failed"),
+            json!("The cleanup command failed with exit code 1."),
+        );
+        feed(
+            &mut state,
+            7,
+            0,
+            "stage.completed",
+            json!({"stage": "cleanup", "status": "failed", "duration_ms": 900}),
+        );
+
+        let row = row_for(&state, Stage::Cleanup, 0);
+
+        assert_eq!(row.phase, Phase::Neutral);
+        assert_eq!(row.subs.len(), 2);
+        assert_eq!(row.subs[0].label, "Build cleanup");
+        assert_eq!(row.subs[0].phase, Phase::Done);
+        assert_eq!(row.subs[1].label, "Docker cleanup");
+        assert_eq!(row.subs[1].phase, Phase::Failed);
+        assert_eq!(
+            row.subs[1].detail.as_deref(),
+            Some("subscriber · The cleanup command failed with exit code 1.")
+        );
     }
 
     #[test]

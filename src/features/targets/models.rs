@@ -12,11 +12,21 @@ pub struct TargetView {
     pub id: String,
     pub name: String,
     pub path: String,
+    // The build the target defines, absent when the server did not send one
+    #[serde(default)]
+    pub build: Option<TargetBuild>,
     pub startup: Option<TargetStartup>,
     pub workload: Option<TargetWorkload>,
     // Workspaces the target also measures, absent for a target without one
     #[serde(default)]
     pub workspaces: Vec<TargetWorkspace>,
+}
+
+// The build command of a saved target and its output folder, null when the default is measured
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct TargetBuild {
+    pub command: String,
+    pub output_dir: Option<String>,
 }
 
 // What the page shows of a workspace. Environment values never arrive, only names.

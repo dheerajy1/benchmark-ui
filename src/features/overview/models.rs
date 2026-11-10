@@ -50,6 +50,9 @@ pub struct TrendPoint {
     pub cpu_average_percent: Option<f64>,
     #[serde(default)]
     pub requests_per_second: Option<f64>,
+    // The requests the workload sent, null under the same rule as requests_per_second
+    #[serde(default)]
+    pub total_requests: Option<u64>,
     #[serde(default)]
     pub p95_ms: Option<f64>,
 }

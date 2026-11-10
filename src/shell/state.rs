@@ -6,6 +6,13 @@ use gloo_timers::future::TimeoutFuture;
 // Local storage key of the pinned state, kept in this browser only
 const PIN_KEY: &str = "benchmark.sidebar.pinned";
 
+// How long after the first render the sidebar and the page start to animate and to react to the
+// mouse. The stylesheet is added by the app after the first render, so a start with nothing cached
+// shows everything unstyled for a moment. A mouse that rests on the page while it opens, as when
+// the link comes from another window, then touches the menu button or the sidebar, and the move
+// into the styled layout takes the mouse off again, which looks like the sidebar opens and closes.
+const ANIMATE_AFTER_MS: u32 = 1200;
+
 // How long the peeking sidebar stays after the mouse leaves
 const PEEK_HIDE_MS: u32 = 240;
 
@@ -34,6 +41,7 @@ pub struct ShellState {
     leave_ticket: Signal<u64>,
     search_input: Signal<Option<Rc<MountedData>>>,
     recents_refresh: Signal<u64>,
+    animate: Signal<bool>,
 }
 
 // Creates the shell state and gives it to every component below
@@ -45,7 +53,16 @@ pub fn use_shell_provider() -> ShellState {
         leave_ticket: use_signal(|| 0),
         search_input: use_signal(|| None),
         recents_refresh: use_signal(|| 0),
+        animate: use_signal(|| false),
     };
+
+    // Moves of the sidebar and the page only animate once the first styles are in place
+    use_future(move || async move {
+        let mut animate = state.animate;
+
+        TimeoutFuture::new(ANIMATE_AFTER_MS).await;
+        animate.set(true);
+    });
 
     use_context_provider(|| state)
 }
@@ -57,6 +74,11 @@ pub fn use_shell() -> ShellState {
 impl ShellState {
     pub fn is_pinned(self) -> bool {
         (self.pinned)()
+    }
+
+    // False during the first moments after the page opens, so nothing slides into place
+    pub fn animates(self) -> bool {
+        (self.animate)()
     }
 
     // The floating sidebar is visible when it is pinned or peeking
@@ -88,6 +110,11 @@ impl ShellState {
 
     // Mouse entered the button or the floating card
     pub fn peek_in(self) {
+        // The page is still loading, a mouse that only rests on it does not open the sidebar
+        if !*self.animate.peek() {
+            return;
+        }
+
         let mut peek = self.peek;
         let mut ticket = self.leave_ticket;
         let next = *ticket.peek() + 1;

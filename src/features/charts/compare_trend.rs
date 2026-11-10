@@ -16,6 +16,17 @@ pub struct CompareSeries {
     pub name: String,
     pub tone: ChartTone,
     pub values: Vec<Option<f64>>,
+    // Shown after the name in the legend only, empty for none
+    pub note: String,
+}
+
+// The legend text of a series: its name, then the note when it has one
+fn legend_label(line: &CompareSeries) -> String {
+    if line.note.is_empty() {
+        line.name.clone()
+    } else {
+        format!("{} · {}", line.name, line.note)
+    }
 }
 
 // Dot on a line, positions are percentages of the plot area
@@ -169,7 +180,7 @@ pub fn CompareTrendChart(
 
     let legend: Vec<(String, ChartTone)> = series
         .iter()
-        .map(|line| (line.name.clone(), line.tone))
+        .map(|line| (legend_label(line), line.tone))
         .collect();
 
     rsx! {
@@ -220,6 +231,22 @@ pub fn CompareTrendChart(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_legend_adds_the_note_after_the_name() {
+        let mut line = CompareSeries {
+            name: "Baseline".to_string(),
+            tone: ChartTone::Slate,
+            values: Vec::new(),
+            note: String::new(),
+        };
+
+        assert_eq!(legend_label(&line), "Baseline");
+
+        line.note = "1,200 requests avg".to_string();
+
+        assert_eq!(legend_label(&line), "Baseline · 1,200 requests avg");
+    }
 
     #[test]
     fn pads_the_front_so_series_end_together() {

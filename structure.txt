@@ -22,6 +22,7 @@
 ├── LICENSE
 ├── README.md
 ├── assets/
+│   ├── favicon-dot.png
 │   ├── favicon.ico
 │   ├── header.svg
 │   ├── main.css
@@ -35,37 +36,67 @@
 │   ├── components/
 │   │   ├── badge.rs
 │   │   ├── button.rs
+│   │   ├── capture.rs
 │   │   ├── card.rs
+│   │   ├── clipboard.rs
+│   │   ├── collapse.rs
 │   │   ├── definition.rs
 │   │   ├── delta_badge.rs
+│   │   ├── draw.rs
 │   │   ├── form_field.rs
 │   │   ├── icons.rs
 │   │   ├── mod.rs
+│   │   ├── modal.rs
 │   │   ├── page_header.rs
+│   │   ├── pill.rs
+│   │   ├── popover.rs
+│   │   ├── runtime_tag.rs
+│   │   ├── section_spy.rs
+│   │   ├── segment_switch.rs
+│   │   ├── skeleton.rs
 │   │   ├── stat_tile.rs
 │   │   ├── states.rs
 │   │   ├── status_badge.rs
-│   │   └── tone.rs
+│   │   ├── stepper.rs
+│   │   ├── switch.rs
+│   │   ├── toast.rs
+│   │   ├── tone.rs
+│   │   └── tooltip.rs
 │   ├── config/
 │   │   ├── env.rs
 │   │   └── mod.rs
 │   ├── features/
 │   │   ├── charts/
 │   │   │   ├── bar_chart.rs
+│   │   │   ├── compare_trend.rs
+│   │   │   ├── diverging_bars.rs
 │   │   │   ├── frame.rs
 │   │   │   ├── geometry.rs
+│   │   │   ├── horizontal_bars.rs
 │   │   │   ├── line_chart.rs
 │   │   │   ├── mod.rs
 │   │   │   ├── palette.rs
-│   │   │   └── scale.rs
+│   │   │   ├── range_bars.rs
+│   │   │   ├── scale.rs
+│   │   │   ├── sparkline.rs
+│   │   │   ├── stacked_bars.rs
+│   │   │   └── trend_tile.rs
 │   │   ├── comparisons/
 │   │   │   ├── api.rs
+│   │   │   ├── cards.rs
 │   │   │   ├── config_notice.rs
+│   │   │   ├── hero.rs
+│   │   │   ├── kpi.rs
 │   │   │   ├── mod.rs
 │   │   │   ├── models.rs
-│   │   │   ├── picker.rs
 │   │   │   ├── results.rs
 │   │   │   ├── rows.rs
+│   │   │   ├── selectors.rs
+│   │   │   ├── skeleton.rs
+│   │   │   ├── subscriber.rs
+│   │   │   ├── summary.rs
+│   │   │   ├── tables.rs
+│   │   │   ├── trends.rs
 │   │   │   └── view.rs
 │   │   ├── configurations/
 │   │   │   ├── api.rs
@@ -77,59 +108,87 @@
 │   │   │   └── models.rs
 │   │   ├── connection/
 │   │   │   ├── client.rs
+│   │   │   ├── environment.rs
 │   │   │   ├── error.rs
+│   │   │   ├── health.rs
 │   │   │   ├── indicator.rs
 │   │   │   ├── mod.rs
 │   │   │   ├── panel.rs
 │   │   │   └── status.rs
 │   │   ├── history/
 │   │   │   ├── api.rs
+│   │   │   ├── columns.rs
+│   │   │   ├── columns_menu.rs
+│   │   │   ├── filters.rs
 │   │   │   ├── mod.rs
 │   │   │   ├── models.rs
 │   │   │   ├── run_row.rs
 │   │   │   ├── selection.rs
 │   │   │   └── view.rs
 │   │   ├── live/
+│   │   │   ├── active.rs
 │   │   │   ├── api.rs
 │   │   │   ├── cancel.rs
 │   │   │   ├── cancel_control.rs
+│   │   │   ├── chips.rs
 │   │   │   ├── driver.rs
+│   │   │   ├── header.rs
+│   │   │   ├── last_run.rs
+│   │   │   ├── live_chart.rs
 │   │   │   ├── mod.rs
 │   │   │   ├── models.rs
+│   │   │   ├── outcome.rs
+│   │   │   ├── phase.rs
 │   │   │   ├── pipeline.rs
+│   │   │   ├── result_cards.rs
 │   │   │   ├── state.rs
+│   │   │   ├── tab_badge.rs
 │   │   │   ├── token.rs
 │   │   │   └── view.rs
 │   │   ├── mod.rs
 │   │   ├── overview/
 │   │   │   ├── api.rs
+│   │   │   ├── charts_section.rs
 │   │   │   ├── dashboard.rs
 │   │   │   ├── latest_run.rs
+│   │   │   ├── metric_tile.rs
 │   │   │   ├── metrics.rs
 │   │   │   ├── mod.rs
 │   │   │   ├── models.rs
+│   │   │   ├── project_switcher.rs
+│   │   │   ├── skeleton.rs
 │   │   │   ├── trend_card.rs
 │   │   │   └── view.rs
 │   │   ├── run_detail/
 │   │   │   ├── api.rs
 │   │   │   ├── mod.rs
 │   │   │   ├── models.rs
+│   │   │   ├── native_vs_docker.rs
 │   │   │   ├── sections.rs
+│   │   │   ├── skeleton.rs
+│   │   │   ├── trend.rs
 │   │   │   ├── view.rs
 │   │   │   └── workspaces.rs
 │   │   ├── submission/
 │   │   │   ├── api.rs
+│   │   │   ├── checks.rs
+│   │   │   ├── custom_form.rs
+│   │   │   ├── estimate.rs
+│   │   │   ├── fields.rs
 │   │   │   ├── form.rs
-│   │   │   ├── history_panel.rs
 │   │   │   ├── import.rs
 │   │   │   ├── import_section.rs
 │   │   │   ├── mod.rs
 │   │   │   ├── models.rs
+│   │   │   ├── paste_modal.rs
 │   │   │   ├── prefill.rs
+│   │   │   ├── previous_runs.rs
+│   │   │   ├── run_panel.rs
+│   │   │   ├── skeleton.rs
+│   │   │   ├── target_card.rs
 │   │   │   ├── target_run.rs
 │   │   │   ├── view.rs
-│   │   │   ├── workspace.rs
-│   │   │   └── workspace_section.rs
+│   │   │   └── workspace.rs
 │   │   └── targets/
 │   │       ├── api.rs
 │   │       ├── mod.rs
@@ -139,16 +198,21 @@
 │   ├── schemas/
 │   │   ├── env.rs
 │   │   └── mod.rs
-│   └── shell/
-│       ├── mod.rs
-│       ├── not_found.rs
-│       ├── sidebar.rs
-│       └── top_bar.rs
+│   ├── shell/
+│   │   ├── mod.rs
+│   │   ├── not_found.rs
+│   │   ├── pinned.rs
+│   │   ├── recents.rs
+│   │   ├── run_menu.rs
+│   │   ├── settings_menu.rs
+│   │   ├── sidebar.rs
+│   │   ├── state.rs
+│   │   └── top_bar.rs
+│   └── tailwind.css
 ├── structure.txt
-├── tailwind.css
 └── xtask/
     ├── Cargo.toml
     └── src/
         └── main.rs
 
-23 directories, 127 files
+23 directories, 191 files

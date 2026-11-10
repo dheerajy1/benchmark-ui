@@ -372,6 +372,9 @@
   .my-\(--space-1\) {
     margin-block: var(--space-1);
   }
+  .-mt-\(--space-1\) {
+    margin-top: calc(var(--space-1) * -1);
+  }
   .-mt-1\.5 {
     margin-top: calc(var(--spacing) * -1.5);
   }
@@ -546,6 +549,9 @@
   }
   .h-5 {
     height: calc(var(--spacing) * 5);
+  }
+  .h-7 {
+    height: calc(var(--spacing) * 7);
   }
   .h-8 {
     height: calc(var(--spacing) * 8);
@@ -840,6 +846,9 @@
   }
   .grid-cols-3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .grid-cols-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   .grid-rows-\[0fr\] {
     grid-template-rows: 0fr;
@@ -1338,6 +1347,9 @@
   .pl-\(--space-1\) {
     padding-left: var(--space-1);
   }
+  .pl-\(--space-2\) {
+    padding-left: var(--space-2);
+  }
   .pl-\(--space-3\) {
     padding-left: var(--space-3);
   }
@@ -1361,6 +1373,9 @@
   }
   .font-\(family-name\:--font-code\) {
     font-family: var(--font-code);
+  }
+  .font-mono {
+    font-family: var(--font-mono);
   }
   .text-\(length\:--fs-2xl\) {
     font-size: var(--fs-2xl);
@@ -2174,6 +2189,11 @@
   .disabled\:opacity-50 {
     &:disabled {
       opacity: 50%;
+    }
+  }
+  .disabled\:opacity-60 {
+    &:disabled {
+      opacity: 60%;
     }
   }
   .disabled\:active\:scale-100 {

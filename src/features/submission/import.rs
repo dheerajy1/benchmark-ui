@@ -8,7 +8,14 @@ use super::{
 // Fills the custom form from a pasted request body, the same JSON POST /api/v1/benchmarks takes
 // (see docs/api.md in benchmark-api). Nothing is sent, the person still checks and runs it.
 
-const TOP_LEVEL: [&str; 4] = ["path", "startup", "workload", "workspaces"];
+const TOP_LEVEL: [&str; 6] = [
+    "path",
+    "build",
+    "cleanup",
+    "startup",
+    "workload",
+    "workspaces",
+];
 
 fn text(object: &Map<String, Value>, key: &str) -> Option<String> {
     object.get(key).and_then(Value::as_str).map(str::to_string)
@@ -56,6 +63,7 @@ fn header_lines(object: &Map<String, Value>) -> String {
 // A small request the Paste JSON dialog can fill in to show the format
 pub const SAMPLE_REQUEST: &str = r#"{
   "path": "/home/me/projects/my-api",
+  "build": { "command": "bun run build", "output_dir": "dist" },
   "startup": {
     "command": { "program": "bun", "args": ["run", "start"] },
     "readiness": {
@@ -83,6 +91,8 @@ pub fn found_parts(input: &str) -> Vec<&'static str> {
 
     [
         ("path", "path"),
+        ("build", "build"),
+        ("cleanup", "cleanup"),
         ("startup", "startup"),
         ("workload", "workload"),
         ("workspaces", "workspace"),
@@ -103,7 +113,7 @@ pub fn form_from_json(input: &str) -> Result<FormState, String> {
 
     if let Some(unknown) = root.keys().find(|key| !TOP_LEVEL.contains(&key.as_str())) {
         return Err(format!(
-            "Unknown field \"{unknown}\". Use path, startup, workload and workspaces."
+            "Unknown field \"{unknown}\". Use path, build, cleanup, startup, workload and workspaces."
         ));
     }
 
@@ -111,6 +121,16 @@ pub fn form_from_json(input: &str) -> Result<FormState, String> {
         path: text(root, "path").ok_or("\"path\" is required and must be text.")?,
         ..FormState::default()
     };
+
+    if let Some(build) = child(root, "build")? {
+        form.build_command = text(build, "command").unwrap_or_default();
+        form.build_output_dir = text(build, "output_dir").unwrap_or_default();
+    }
+
+    if let Some(cleanup) = child(root, "cleanup")? {
+        form.cleanup_command = text(cleanup, "command").unwrap_or_default();
+        form.cleanup_timeout = number(cleanup, "timeout_seconds").unwrap_or_default();
+    }
 
     if let Some(startup) = child(root, "startup")? {
         form.startup_enabled = true;
@@ -232,6 +252,11 @@ fn workspace_form(workspace: &Map<String, Value>) -> Result<WorkspaceForm, Strin
         if let Some(timeout) = number(docker, "build_timeout_seconds") {
             form.docker_build_timeout_seconds = timeout;
         }
+
+        if let Some(cleanup) = child(docker, "cleanup")? {
+            form.docker_cleanup_command = text(cleanup, "command").unwrap_or_default();
+            form.docker_cleanup_timeout = number(cleanup, "timeout_seconds").unwrap_or_default();
+        }
     }
 
     Ok(form)
@@ -244,6 +269,8 @@ mod tests {
 
     const REQUEST: &str = r#"{
         "path": "/home/me/recordlog-api",
+        "build": { "command": "bun run build", "output_dir": "dist" },
+        "cleanup": { "command": "docker system prune -af", "timeout_seconds": 300 },
         "workspaces": [{
             "name": "subscriber",
             "directory": ".",
@@ -258,7 +285,8 @@ mod tests {
                 "build_timeout_seconds": 1800,
                 "image": "sub:latest",
                 "container_name": "sub",
-                "run_command": "docker run -d --name sub --env-file {ENV_FILE} sub:latest"
+                "run_command": "docker run -d --name sub --env-file {ENV_FILE} sub:latest",
+                "cleanup": { "command": "docker rmi sub:latest", "timeout_seconds": 60 }
             }
         }]
     }"#;
@@ -268,6 +296,10 @@ mod tests {
         let form = form_from_json(REQUEST).expect("fills");
 
         assert_eq!(form.path, "/home/me/recordlog-api");
+        assert_eq!(form.build_command, "bun run build");
+        assert_eq!(form.build_output_dir, "dist");
+        assert_eq!(form.cleanup_command, "docker system prune -af");
+        assert_eq!(form.cleanup_timeout, "300");
         assert!(form.workspace.enabled);
         assert_eq!(form.workspace.directory, ".");
         assert_eq!(form.workspace.env_source, EnvSource::File);
@@ -276,9 +308,15 @@ mod tests {
         let sent = serde_json::to_value(validate(&form).expect("valid")).unwrap();
         let original: Value = serde_json::from_str(REQUEST).unwrap();
 
+        assert_eq!(sent["build"], original["build"]);
+        assert_eq!(sent["cleanup"], original["cleanup"]);
         assert_eq!(
             sent["workspaces"][0]["name"],
             original["workspaces"][0]["name"]
+        );
+        assert_eq!(
+            sent["workspaces"][0]["docker"]["cleanup"],
+            original["workspaces"][0]["docker"]["cleanup"]
         );
         assert_eq!(
             sent["workspaces"][0]["docker"]["run_command"],
@@ -336,7 +374,10 @@ mod tests {
         let form = form_from_json(SAMPLE_REQUEST).expect("sample parses");
 
         assert!(validate(&form).is_ok());
-        assert_eq!(found_parts(SAMPLE_REQUEST), ["path", "startup", "workload"]);
+        assert_eq!(
+            found_parts(SAMPLE_REQUEST),
+            ["path", "build", "startup", "workload"]
+        );
     }
 
     #[test]

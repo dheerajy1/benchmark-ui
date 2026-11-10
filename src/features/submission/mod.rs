@@ -1,6 +1,7 @@
 // Benchmark submission: start from a saved target or a custom form, and reuse previous settings
 
 mod api;
+mod build_suggestions;
 mod checks;
 mod custom_form;
 mod estimate;

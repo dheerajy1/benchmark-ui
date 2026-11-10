@@ -70,6 +70,12 @@ pub fn Sidebar() -> Element {
         "pointer-events-none invisible top-[calc(var(--topbar-height)+0.5rem)] bottom-2 -left-72 rounded-[14px] border opacity-0"
     };
 
+    let motion = if shell.animates() {
+        "transition-[left,opacity,visibility] duration-300 ease-(--ease-out)"
+    } else {
+        ""
+    };
+
     let (dot_class, status_text) = match *CONNECTION.read() {
         ConnectionState::Unknown => ("bg-(--clr-text-faint) animate-pulse", "Checking API"),
         ConnectionState::Online => (
@@ -81,7 +87,7 @@ pub fn Sidebar() -> Element {
 
     rsx! {
         aside {
-            class: "fixed z-40 flex w-(--sidebar-width) flex-col border-(color:--clr-border) bg-(--clr-surface) transition-[left,opacity,visibility] duration-300 ease-(--ease-out) {frame_class}",
+            class: "fixed z-40 flex w-(--sidebar-width) flex-col border-(color:--clr-border) bg-(--clr-surface) {motion} {frame_class}",
             "aria-label": "Primary",
             onmouseenter: move |_| shell.peek_in(),
             onmouseleave: move |_| shell.peek_out(),

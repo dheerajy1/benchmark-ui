@@ -3,6 +3,7 @@ use gloo_timers::future::TimeoutFuture;
 
 use super::{
     api::{submit_live, submit_target_live},
+    build_suggestions::suggestions_for,
     checks::{all_ok, custom_checks, custom_lines, target_checks, target_lines},
     custom_form::CustomForm,
     estimate::{custom_plan, fetch_stage_averages, panel_parts, target_plan, StageAverages},
@@ -339,6 +340,11 @@ pub fn Submission(#[props(default)] from_run: Option<String>, target: String) ->
     } else {
         current_errors
     };
+    // Builds of past successful runs of the typed path, the path is read once typing pauses so
+    // the chips do not flicker on every key
+    let typed_for_chips = reference_path.read().clone().unwrap_or_default();
+    let build_suggestions = suggestions_for(&all_runs.read(), &typed_for_chips);
+    let suggestions_loading = matches!(history_state, Loaded::Loading);
     let custom_check_list = custom_checks(&state, &live_errors);
     let custom_ready = live.is_ok() && all_ok(&custom_check_list);
     let target_check_list = target_checks(current_target.as_ref());
@@ -662,6 +668,8 @@ pub fn Submission(#[props(default)] from_run: Option<String>, target: String) ->
                         form,
                         reference,
                         errors: current_errors.clone(),
+                        suggestions: build_suggestions,
+                        suggestions_loading,
                         running,
                     }
                 }

@@ -48,6 +48,8 @@ pub fn TrendTile(
     format: ValueFormat,
     tone: ChartTone,
     lower_is_better: bool,
+    // Small text at the right of the value, for example how many requests were sent
+    #[props(into, default)] chip: String,
 ) -> Element {
     let labels = ago_labels(values.len());
 
@@ -98,6 +100,12 @@ pub fn TrendTile(
                 }
                 if !unit.is_empty() {
                     span { class: "text-(length:--fs-sm) text-(color:--clr-text-muted)", "{unit}" }
+                }
+                if !chip.is_empty() {
+                    span { class: "ml-auto min-w-0 truncate pl-(--space-2) text-(length:--fs-xs) text-(color:--clr-text-muted) tabular-nums",
+                        title: "{chip}",
+                        "{chip}"
+                    }
                 }
             }
             Sparkline {

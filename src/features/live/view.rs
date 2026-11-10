@@ -96,7 +96,12 @@ fn LivePage(run_id: String) -> Element {
         let snapshot = state.read();
         let plan = snapshot.plan()?;
 
-        live_total_ms(plan.workload.is_some(), plan.workspaces > 0, &known)
+        live_total_ms(
+            plan.workload.is_some(),
+            plan.workspaces > 0,
+            plan.cleanup,
+            &known,
+        )
     });
 
     // The newest finished run of the project, for the dashed lines of the charts

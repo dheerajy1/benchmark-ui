@@ -73,7 +73,17 @@ pub fn target_checks(form: Option<&TargetForm>) -> Vec<Check> {
 // What has to be right for a custom run, from the raw form and the live validation errors
 pub fn custom_checks(state: &FormState, errors: &[FieldError]) -> Vec<Check> {
     let failed = |fields: &[Field]| errors.iter().any(|error| fields.contains(&error.field));
-    let mut checks = vec![check("Project path is set", filled(&state.path))];
+    let mut checks = vec![
+        check("Project path is set", filled(&state.path)),
+        check("Build command is set", filled(&state.build_command)),
+    ];
+
+    if filled(&state.cleanup_command) {
+        checks.push(check(
+            "Cleanup timeout is valid",
+            !failed(&[Field::CleanupTimeout]),
+        ));
+    }
 
     if state.startup_enabled {
         checks.push(check(
@@ -171,6 +181,10 @@ pub fn target_lines(
     } else {
         "None".to_string()
     };
+    let build = target
+        .build
+        .as_ref()
+        .map_or_else(|| "…".to_string(), |build| build.command.clone());
     let workspaces = if target.workspaces.is_empty() {
         "None".to_string()
     } else {
@@ -185,6 +199,7 @@ pub fn target_lines(
     vec![
         line("Target", target.name.clone()),
         line("Path", target.path.clone()),
+        line("Build", build),
         line("Workload", workload),
         line("Workspace", workspaces),
     ]
@@ -194,6 +209,11 @@ pub fn target_lines(
 pub fn custom_lines(state: &FormState) -> Vec<(String, String)> {
     let path = if filled(&state.path) {
         state.path.trim().to_string()
+    } else {
+        "…".to_string()
+    };
+    let build = if filled(&state.build_command) {
+        state.build_command.trim().to_string()
     } else {
         "…".to_string()
     };
@@ -250,8 +270,16 @@ pub fn custom_lines(state: &FormState) -> Vec<(String, String)> {
         "None".to_string()
     };
 
+    let cleanup = if filled(&state.cleanup_command) {
+        state.cleanup_command.trim().to_string()
+    } else {
+        "None".to_string()
+    };
+
     vec![
         line("Path", path),
+        line("Build", build),
+        line("Cleanup", cleanup),
         line("Startup", startup),
         line("Workload", workload),
         line("Workspace", workspace_text),
@@ -294,12 +322,16 @@ mod tests {
     }
 
     #[test]
-    fn a_custom_run_needs_a_project_path() {
+    fn a_custom_run_needs_a_project_path_and_a_build_command() {
         let mut state = FormState::default();
 
         assert!(!all_ok(&custom_checks(&state, &[])));
 
         state.path = "/p".to_string();
+
+        assert!(!all_ok(&custom_checks(&state, &[])));
+
+        state.build_command = "bun run build".to_string();
 
         assert!(all_ok(&custom_checks(&state, &[])));
     }
@@ -308,6 +340,7 @@ mod tests {
     fn a_workspace_needs_a_mode_and_the_env_placeholder() {
         let mut state = FormState {
             path: "/p".to_string(),
+            build_command: "build".to_string(),
             ..FormState::default()
         };
         state.workspace.enabled = true;
@@ -337,6 +370,7 @@ mod tests {
     fn unnamed_errors_add_a_catch_all_check() {
         let state = FormState {
             path: "/p".to_string(),
+            build_command: "build".to_string(),
             ..FormState::default()
         };
         let errors = [FieldError {
@@ -353,6 +387,7 @@ mod tests {
     fn summarizes_a_custom_run() {
         let state = FormState {
             path: " /p ".to_string(),
+            build_command: " cargo xtask build ".to_string(),
             workload_enabled: true,
             workload_path: "/items".to_string(),
             amount: "50".to_string(),
@@ -363,8 +398,10 @@ mod tests {
         let lines = custom_lines(&state);
 
         assert_eq!(lines[0].1, "/p");
-        assert_eq!(lines[1].1, "Detected from the project");
-        assert_eq!(lines[2].1, "GET /items · 50 requests · 2 at once");
-        assert_eq!(lines[3].1, "None");
+        assert_eq!(lines[1].1, "cargo xtask build");
+        assert_eq!(lines[2].1, "None");
+        assert_eq!(lines[3].1, "Detected from the project");
+        assert_eq!(lines[4].1, "GET /items · 50 requests · 2 at once");
+        assert_eq!(lines[5].1, "None");
     }
 }

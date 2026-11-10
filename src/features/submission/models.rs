@@ -45,10 +45,31 @@ pub struct WorkloadRequest {
     pub concurrency: u64,
 }
 
-// Only `path` is required by the API
+// The build command is always given by the person, the API never detects it. The output folder
+// is left out when empty, so the API measures its default (dist, or target for Rust).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BuildRequest {
+    pub command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_dir: Option<String>,
+}
+
+// The command that runs in the project path when the run is over, whatever the outcome. The
+// timeout is left out when empty, so the API uses its default of 120 seconds.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CleanupRequest {
+    pub command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_seconds: Option<u64>,
+}
+
+// `path` and `build` are required by the API
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BenchmarkRequest {
     pub path: String,
+    pub build: BuildRequest,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cleanup: Option<CleanupRequest>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub startup: Option<StartupRequest>,
     #[serde(skip_serializing_if = "Option::is_none")]

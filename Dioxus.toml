@@ -1,4 +1,6 @@
 [application]
+tailwind_input = "src/tailwind.css"
+tailwind_output = "assets/tailwind.css"
 
 [web.app]
 

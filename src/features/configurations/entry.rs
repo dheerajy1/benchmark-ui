@@ -37,6 +37,7 @@ pub fn entry_from_result(result: &BenchmarkResult) -> ConfigurationEntry {
         run_id: result.run_id.clone(),
         // The creation time is not part of the stored result, so it stays unknown
         created_at: String::new(),
+        status: String::new(),
         path: result.target.path.clone(),
         startup,
         recorded: false,
@@ -54,6 +55,7 @@ pub async fn fetch_entry(run_id: &str) -> Result<ConfigurationEntry, ApiError> {
             run_id: detail.run_id,
             // The creation time is not part of the configuration, so it stays unknown
             created_at: String::new(),
+            status: String::new(),
             path: config.target_path.clone(),
             startup: config.startup.clone(),
             recorded: true,
