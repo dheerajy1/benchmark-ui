@@ -185,6 +185,11 @@ pub fn target_lines(
         .build
         .as_ref()
         .map_or_else(|| "…".to_string(), |build| build.command.clone());
+    let cleanup = match target.cleanup.as_ref() {
+        Some(cleanup) if !cleanup.command.trim().is_empty() => cleanup.command.clone(),
+        _ if target.has_cleanup() => "Docker only".to_string(),
+        _ => "None".to_string(),
+    };
     let workspaces = if target.workspaces.is_empty() {
         "None".to_string()
     } else {
@@ -200,6 +205,7 @@ pub fn target_lines(
         line("Target", target.name.clone()),
         line("Path", target.path.clone()),
         line("Build", build),
+        line("Cleanup", cleanup),
         line("Workload", workload),
         line("Workspace", workspaces),
     ]

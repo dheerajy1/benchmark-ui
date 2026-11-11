@@ -7,49 +7,27 @@ mod run_menu;
 mod settings_menu;
 mod sidebar;
 mod state;
+mod status_socket;
 mod top_bar;
 
 use dioxus::prelude::*;
-use gloo_timers::future::TimeoutFuture;
 
-use crate::{
-    app::Route,
-    components::ToastProvider,
-    features::{
-        connection::probe,
-        live::{refresh_active, ACTIVE_RUN},
-    },
-};
+use crate::{app::Route, components::ToastProvider, features::live::ACTIVE_RUN};
 
 pub use not_found::NotFound;
 use sidebar::Sidebar;
 use state::use_shell_provider;
+use status_socket::keep_status_current;
 use top_bar::TopBar;
-
-// The active run is asked for every 3 seconds, the API health every fifth time
-const ACTIVE_POLL_MS: u32 = 3_000;
-const HEALTH_EVERY: u32 = 5;
 
 // Layout shared by every route, the router renders the active page in the outlet
 #[component]
 pub fn AppShell() -> Element {
     let shell = use_shell_provider();
 
-    // Keeps the active run chip and the API pill current on every page
+    // Keeps the active run chip and the API pill current on every page over one WebSocket
     use_future(move || async move {
-        let mut until_health = 0u32;
-
-        loop {
-            refresh_active().await;
-
-            if until_health == 0 {
-                probe().await;
-                until_health = HEALTH_EVERY;
-            }
-
-            until_health -= 1;
-            TimeoutFuture::new(ACTIVE_POLL_MS).await;
-        }
+        keep_status_current().await;
     });
 
     // When the active run ends it appears in the Recents list

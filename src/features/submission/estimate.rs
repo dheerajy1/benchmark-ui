@@ -82,7 +82,7 @@ pub fn target_plan(target: &TargetView, form: &TargetForm) -> Vec<(Stage, bool)>
         target.startup.is_some(),
         form.has_workload,
         !target.workspaces.is_empty(),
-        false,
+        target.has_cleanup(),
     )
 }
 

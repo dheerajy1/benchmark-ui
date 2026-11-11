@@ -18,7 +18,7 @@ mod tab_badge;
 mod token;
 mod view;
 
-pub use active::{progress_text, refresh_active, ACTIVE_RUN};
+pub use active::{progress_text, refresh_active, ActiveRun, ACTIVE_RUN};
 pub use api::active_run_id;
 pub use models::LiveRunAccepted;
 pub use state::Stage;

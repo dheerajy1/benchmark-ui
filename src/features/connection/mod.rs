@@ -15,4 +15,4 @@ pub use error::RequestInfo;
 pub use health::{probe, HealthSample, HEALTH};
 pub use indicator::ApiPill;
 pub use panel::ApiErrorPanel;
-pub use status::{ConnectionState, CONNECTION, LAST_REQUEST_ID};
+pub use status::{mark, ConnectionState, CONNECTION, LAST_REQUEST_ID};
