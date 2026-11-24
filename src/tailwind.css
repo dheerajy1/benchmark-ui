@@ -218,6 +218,29 @@
     animation: skeleton-pulse 1.8s ease-in-out infinite;
   }
 
+  /* Skeletons of the pipeline. A light band sweeps across the one of the step that runs, those of
+     the steps still to come stay still and a little paler, so only where the run is moves. */
+  .sk-live {
+    background-image: linear-gradient(
+      90deg,
+      transparent 30%,
+      color-mix(in srgb, var(--clr-surface) 80%, transparent) 50%,
+      transparent 70%
+    );
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    animation: skeleton-sweep 1.5s linear infinite;
+  }
+  .sk-still {
+    background-color: color-mix(in srgb, var(--clr-skeleton) 60%, var(--clr-surface));
+    animation: none;
+  }
+
+  /* A value that arrives takes the place of its skeleton with a soft fade */
+  .value-in {
+    animation: fade-in 0.3s ease-out both;
+  }
+
   /* Content that replaces a skeleton: fades and rises 6px over .5s, staggered with --stagger */
   .reveal {
     animation: reveal-rise 0.5s var(--ease-out) both;
@@ -300,6 +323,72 @@
     animation: toast-in 0.25s var(--ease-out) both;
   }
 
+  /* Pipeline step markers, drawn on a 20 by 20 grid. Waiting is an empty ring, running a ring with a
+     dark arc that turns, done and failed a solid disc with a check or a cross that draws in, stopped
+     a ring with a square, skipped a dashed ring. Only the running arc rotates. */
+  .mk-ring {
+    stroke: var(--clr-border-strong);
+    stroke-width: 2;
+  }
+  .mk-dashed {
+    stroke-dasharray: 3.2 3.2;
+  }
+  .mk-arc {
+    stroke: var(--clr-text);
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+  .mk-ok {
+    fill: var(--clr-success);
+  }
+  .mk-bad {
+    fill: var(--clr-danger);
+  }
+  .mk-pen {
+    stroke: var(--clr-surface);
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .mk-stop {
+    fill: var(--clr-text-muted);
+  }
+  .mk-dash {
+    stroke: var(--clr-text-faint);
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+  .mk-spin {
+    animation: marker-spin 0.8s linear infinite;
+  }
+  /* The room of one line of text, so a skeleton and the text that replaces it take the same height */
+  .line-xs {
+    display: flex;
+    align-items: center;
+    min-height: calc(var(--fs-xs) * 1.5);
+  }
+  .line-2xs {
+    display: flex;
+    align-items: center;
+    min-height: calc(var(--fs-2xs) * 1.5);
+  }
+  /* An empty zero-width character gives the line a text baseline, so a row that aligns its
+     columns by baseline sits the same with a skeleton as with the text */
+  .line-xs::before {
+    content: "\200b";
+    font-size: var(--fs-xs);
+  }
+  .line-2xs::before {
+    content: "\200b";
+    font-size: var(--fs-2xs);
+  }
+
+  /* The check and the cross are revealed from left to right, the negative inset keeps the round
+     line ends from being cut off */
+  .mk-tick {
+    animation: marker-tick 0.3s var(--ease-out) 0.1s both;
+  }
+
   /* Sparkline: grey at rest, takes its color and thickens when the hosting group is hovered */
   .spark-area {
     fill: var(--clr-chart-idle-soft);
@@ -329,6 +418,31 @@
   .group:hover .spark-end {
     background-color: var(--spark-color, var(--clr-chart-1));
     animation: pulse-ring 1.4s ease-out infinite;
+  }
+}
+
+@keyframes marker-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes marker-tick {
+  from {
+    clip-path: inset(-2px 100% -2px -2px);
+  }
+  to {
+    clip-path: inset(-2px -2px -2px -2px);
+  }
+}
+
+/* The band starts beyond the right edge and leaves past the left one, then starts again */
+@keyframes skeleton-sweep {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -40% 0;
   }
 }
 

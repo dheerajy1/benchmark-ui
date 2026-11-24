@@ -414,6 +414,9 @@
   .-ml-2 {
     margin-left: calc(var(--spacing) * -2);
   }
+  .ml-\(--space-1\) {
+    margin-left: var(--space-1);
+  }
   .ml-\(--space-2\) {
     margin-left: var(--space-2);
   }
@@ -649,6 +652,9 @@
   .w-14 {
     width: calc(var(--spacing) * 14);
   }
+  .w-16 {
+    width: calc(var(--spacing) * 16);
+  }
   .w-18 {
     width: calc(var(--spacing) * 18);
   }
@@ -663,6 +669,9 @@
   }
   .w-32 {
     width: calc(var(--spacing) * 32);
+  }
+  .w-36 {
+    width: calc(var(--spacing) * 36);
   }
   .w-40 {
     width: calc(var(--spacing) * 40);
@@ -1052,9 +1061,6 @@
   }
   .border-t-\(color\:--clr-accent\) {
     border-top-color: var(--clr-accent);
-  }
-  .border-t-transparent {
-    border-top-color: transparent;
   }
   .bg-\(--clr-accent\) {
     background-color: var(--clr-accent);
@@ -2614,6 +2620,25 @@
     background-color: var(--clr-skeleton);
     animation: skeleton-pulse 1.8s ease-in-out infinite;
   }
+  .sk-live {
+    background-image: linear-gradient( 90deg, transparent 30%, var(--clr-surface) 50%, transparent 70% );
+    @supports (color: color-mix(in lab, red, red)) {
+      background-image: linear-gradient( 90deg, transparent 30%, color-mix(in srgb, var(--clr-surface) 80%, transparent) 50%, transparent 70% );
+    }
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    animation: skeleton-sweep 1.5s linear infinite;
+  }
+  .sk-still {
+    background-color: var(--clr-skeleton);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in srgb, var(--clr-skeleton) 60%, var(--clr-surface));
+    }
+    animation: none;
+  }
+  .value-in {
+    animation: fade-in 0.3s ease-out both;
+  }
   .reveal {
     animation: reveal-rise 0.5s var(--ease-out) both;
     animation-delay: var(--stagger, 0ms);
@@ -2668,6 +2693,62 @@
   .toast-in {
     animation: toast-in 0.25s var(--ease-out) both;
   }
+  .mk-ring {
+    stroke: var(--clr-border-strong);
+    stroke-width: 2;
+  }
+  .mk-dashed {
+    stroke-dasharray: 3.2 3.2;
+  }
+  .mk-arc {
+    stroke: var(--clr-text);
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+  .mk-ok {
+    fill: var(--clr-success);
+  }
+  .mk-bad {
+    fill: var(--clr-danger);
+  }
+  .mk-pen {
+    stroke: var(--clr-surface);
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .mk-stop {
+    fill: var(--clr-text-muted);
+  }
+  .mk-dash {
+    stroke: var(--clr-text-faint);
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+  .mk-spin {
+    animation: marker-spin 0.8s linear infinite;
+  }
+  .line-xs {
+    display: flex;
+    align-items: center;
+    min-height: calc(var(--fs-xs) * 1.5);
+  }
+  .line-2xs {
+    display: flex;
+    align-items: center;
+    min-height: calc(var(--fs-2xs) * 1.5);
+  }
+  .line-xs::before {
+    content: "\200b";
+    font-size: var(--fs-xs);
+  }
+  .line-2xs::before {
+    content: "\200b";
+    font-size: var(--fs-2xs);
+  }
+  .mk-tick {
+    animation: marker-tick 0.3s var(--ease-out) 0.1s both;
+  }
   .spark-area {
     fill: var(--clr-chart-idle-soft);
     transition: fill 0.3s var(--ease-out);
@@ -2694,6 +2775,27 @@
   .group:hover .spark-end {
     background-color: var(--spark-color, var(--clr-chart-1));
     animation: pulse-ring 1.4s ease-out infinite;
+  }
+}
+@keyframes marker-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes marker-tick {
+  from {
+    clip-path: inset(-2px 100% -2px -2px);
+  }
+  to {
+    clip-path: inset(-2px -2px -2px -2px);
+  }
+}
+@keyframes skeleton-sweep {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -40% 0;
   }
 }
 @keyframes skeleton-pulse {

@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use super::state::{cleanup_label, mode_title, phase_text, LiveState, Stage, StageState, Terminal};
 use crate::{
-    components::Card,
+    components::{Card, Skeleton},
     features::submission::{last_for, StageAverages},
     format::{format_bytes, format_duration_ms, humanize_code},
 };
@@ -23,30 +23,12 @@ enum Phase {
 }
 
 impl Phase {
-    fn marker_class(self) -> &'static str {
+    // The one thing that moves: the running marker turns, a marker that just finished pops in
+    fn motion_class(self) -> &'static str {
         match self {
-            Self::Pending => "border border-(color:--clr-border-strong)",
-            Self::Running => {
-                "animate-spin border-2 border-(color:--clr-accent) border-t-transparent"
-            }
-            Self::Done => "bg-(--clr-success) text-white",
-            Self::Failed => "bg-(--clr-danger) text-white",
-            Self::Cancelled => {
-                "border border-(color:--clr-border-strong) text-(color:--clr-text-muted)"
-            }
-            Self::Neutral | Self::Skipped | Self::NotRequested => {
-                "border border-dashed border-(color:--clr-border-strong) text-(color:--clr-text-faint)"
-            }
-        }
-    }
-
-    fn glyph(self) -> &'static str {
-        match self {
-            Self::Done => "✓",
-            Self::Failed => "✕",
-            Self::Cancelled => "■",
-            Self::Neutral | Self::Skipped | Self::NotRequested => "–",
-            Self::Pending | Self::Running => "",
+            Self::Running => "mk-spin",
+            Self::Done | Self::Failed => "pop-in",
+            _ => "",
         }
     }
 
@@ -64,12 +46,74 @@ impl Phase {
         }
     }
 
+    // A step that has an outcome reads dark, the one that runs and those still waiting read grey
     fn label_class(self) -> &'static str {
         match self {
-            Self::Pending | Self::NotRequested | Self::Skipped => "text-(color:--clr-text-faint)",
-            Self::Failed => "text-(color:--clr-danger)",
-            Self::Cancelled => "text-(color:--clr-text-muted)",
-            _ => "text-(color:--clr-text)",
+            Self::Done | Self::Failed | Self::Neutral => "text-(color:--clr-text)",
+            Self::Running | Self::Pending | Self::Cancelled => "text-(color:--clr-text-muted)",
+            Self::Skipped | Self::NotRequested => "text-(color:--clr-text-faint)",
+        }
+    }
+
+    // The line under a step is red when the step failed, the failure is said there and not in
+    // the title
+    fn detail_class(self) -> &'static str {
+        match self {
+            Self::Failed => "text-(color:--clr-danger-text)",
+            _ => "text-(color:--clr-text-muted)",
+        }
+    }
+}
+
+// The round marker of a step. Drawn as SVG on a 20 by 20 grid, so every state stays crisp at the
+// size of a step and at the smaller size of a workspace mode. The colors and the draw-in of the
+// check and the cross live in tailwind.css under `mk-`.
+#[component]
+fn Marker(phase: Phase, size: u32) -> Element {
+    let motion = phase.motion_class();
+
+    let shape: Element = match phase {
+        Phase::Pending => rsx! {
+            circle { class: "mk-ring", cx: "10", cy: "10", r: "9" }
+        },
+        Phase::Running => rsx! {
+            circle { class: "mk-ring", cx: "10", cy: "10", r: "9" }
+            path { class: "mk-arc", d: "M10 1a9 9 0 0 1 9 9" }
+        },
+        Phase::Done => rsx! {
+            circle { class: "mk-ok", cx: "10", cy: "10", r: "10" }
+            path { class: "mk-pen mk-tick", d: "M5.8 10.4l2.9 2.9 5.5-6" }
+        },
+        Phase::Failed => rsx! {
+            circle { class: "mk-bad", cx: "10", cy: "10", r: "10" }
+            path { class: "mk-pen mk-tick", d: "M6.6 6.6l6.8 6.8M13.4 6.6l-6.8 6.8" }
+        },
+        Phase::Cancelled => rsx! {
+            circle { class: "mk-ring", cx: "10", cy: "10", r: "9" }
+            rect {
+                class: "mk-stop",
+                x: "7",
+                y: "7",
+                width: "6",
+                height: "6",
+                rx: "1.5",
+            }
+        },
+        Phase::Neutral | Phase::Skipped | Phase::NotRequested => rsx! {
+            circle { class: "mk-ring mk-dashed", cx: "10", cy: "10", r: "9" }
+            path { class: "mk-dash", d: "M7 10h6" }
+        },
+    };
+
+    rsx! {
+        svg {
+            class: "shrink-0 {motion}",
+            width: "{size}",
+            height: "{size}",
+            view_box: "0 0 20 20",
+            fill: "none",
+            "aria-hidden": "true",
+            {shape}
         }
     }
 }
@@ -93,10 +137,136 @@ struct SubRow {
     label: &'static str,
     phase: Phase,
     detail: Option<String>,
+    // The line under the label is still to come, it holds its place as a skeleton
+    waiting: bool,
+}
+
+// The values of a step the run has not reported yet. Each one holds its place as a skeleton, so
+// nothing moves when the value arrives. A name that is already known is shown as text.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Waiting {
+    // The duration of a step that has not started
+    time: bool,
+    // The line under a title that a measurement fills in, such as the runtime
+    detail: bool,
+    // How the step compares with the last run, known to come once the step ends
+    change: bool,
+    // The progress bar of the workload, until its first sample
+    bar: bool,
+}
+
+// Whether the run is still going. Once it ended or was asked to stop, a value that was not
+// reported is not coming and its skeleton goes.
+fn is_live(state: &LiveState) -> bool {
+    !state.is_terminal() && !state.is_cancelling()
+}
+
+// The steps whose line under the title is a measurement made while the step runs. The other
+// steps have no such line, or know it from the start like the workload does.
+fn reports_detail(stage: Stage) -> bool {
+    matches!(
+        stage,
+        Stage::Discovery | Stage::ArtifactSize | Stage::Baseline
+    )
+}
+
+// One piece of the line a measuring step writes once it has its values
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Piece {
+    // A word the line always has, it is shown as text while the value is awaited
+    Word(&'static str),
+    // A value, shown as a skeleton of about its width
+    Value(&'static str),
+}
+
+// The shape of the line under a step that measures something, so only the values wait and the
+// words that are already known stay as text
+fn detail_shape(stage: Stage) -> &'static [Piece] {
+    match stage {
+        Stage::Discovery => &[Piece::Word("Runtime"), Piece::Value("w-12")],
+        Stage::ArtifactSize => &[
+            Piece::Word("Source"),
+            Piece::Value("w-14"),
+            Piece::Word("· build output"),
+            Piece::Value("w-16"),
+        ],
+        Stage::Baseline => &[Piece::Word("Idle memory"), Piece::Value("w-14")],
+        _ => &[Piece::Value("w-44")],
+    }
+}
+
+fn waiting_for(stage: Stage, phase: Phase, live: bool, has_detail: bool, has_bar: bool) -> Waiting {
+    let ahead = live && matches!(phase, Phase::Pending | Phase::Running);
+
+    Waiting {
+        // A running step shows its elapsed time, so only a step that has not started waits
+        time: live && phase == Phase::Pending,
+        detail: ahead && !has_detail && reports_detail(stage),
+        // Set once the last run is known, see `waits_for_change`
+        change: false,
+        // The place of the bar is held from the start, a step that has not started has none yet
+        bar: stage == Stage::Workload
+            && live
+            && (phase == Phase::Pending || (phase == Phase::Running && !has_bar)),
+    }
+}
+
+// A step that has a time in the last run ends with a comparison under its own time
+fn waits_for_change(phase: Phase, live: bool, has_last: bool) -> bool {
+    live && has_last && matches!(phase, Phase::Pending | Phase::Running)
+}
+
+// A workspace goes through its two modes, in this order
+const WORKSPACE_MODES: [&str; 2] = ["native", "docker"];
+
+// The titles of the rows the Measure workspace step is expected to report, every workspace brings
+// its two modes. The Workspaces section waits for the same two modes.
+fn workspace_labels(workspaces: u64) -> Vec<&'static str> {
+    (0..workspaces)
+        .flat_map(|_| WORKSPACE_MODES)
+        .map(mode_title)
+        .collect()
+}
+
+// The rows a step is expected to report and has not yet. They sit in place as waiting rows, so the
+// step does not grow with every report. A row the step ended without reporting is marked not
+// requested, one the run never got to says it was not run.
+fn reserved_rows(missing: Vec<&'static str>, step: Phase, live: bool) -> Vec<SubRow> {
+    let coming = live && matches!(step, Phase::Pending | Phase::Running);
+    let ended = matches!(step, Phase::Done | Phase::Neutral);
+
+    missing
+        .into_iter()
+        .map(|label| {
+            if coming {
+                SubRow {
+                    label,
+                    phase: Phase::Pending,
+                    detail: None,
+                    waiting: true,
+                }
+            } else if ended {
+                SubRow {
+                    label,
+                    phase: Phase::NotRequested,
+                    detail: Some("Not requested".to_string()),
+                    waiting: false,
+                }
+            } else {
+                SubRow {
+                    label,
+                    phase: Phase::Pending,
+                    detail: Some("Not run".to_string()),
+                    waiting: false,
+                }
+            }
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct Row {
+    stage: Stage,
     label: &'static str,
     phase: Phase,
     detail: Option<String>,
@@ -108,12 +278,13 @@ struct Row {
     change: Option<Delta>,
     // The workspace modes the run has reported, only on the Measure workspace step
     subs: Vec<SubRow>,
+    waiting: Waiting,
 }
 
 // The modes of a run in the order they ran. A mode that never finished takes the state of the
 // step, so a stopped run does not keep a spinner.
 fn workspace_subs(state: &LiveState, step: Phase) -> Vec<SubRow> {
-    state
+    let mut subs: Vec<SubRow> = state
         .workspace_modes()
         .iter()
         .map(|live| {
@@ -149,15 +320,29 @@ fn workspace_subs(state: &LiveState, step: Phase) -> Vec<SubRow> {
                 label: mode_title(&live.mode),
                 phase,
                 detail,
+                waiting: false,
             }
         })
-        .collect()
+        .collect();
+
+    // The modes still to come keep their place, the rows after the reported ones
+    if state.workspaces_requested() == Some(true) {
+        let workspaces = state.plan().map_or(0, |plan| plan.workspaces);
+        let missing = workspace_labels(workspaces)
+            .into_iter()
+            .skip(subs.len())
+            .collect();
+
+        subs.extend(reserved_rows(missing, step, is_live(state)));
+    }
+
+    subs
 }
 
 // The cleanup commands in the order they ran. One that never finished takes the state of the
 // step, so a stopped run does not keep a spinner.
 fn cleanup_subs(state: &LiveState, step: Phase) -> Vec<SubRow> {
-    state
+    let mut subs: Vec<SubRow> = state
         .cleanup_steps()
         .iter()
         .map(|live| {
@@ -191,9 +376,35 @@ fn cleanup_subs(state: &LiveState, step: Phase) -> Vec<SubRow> {
                 label: cleanup_label(&live.step),
                 phase,
                 detail,
+                waiting: false,
             }
         })
-        .collect()
+        .collect();
+
+    // The build cleanup is expected with any cleanup, the Docker one when workspaces are measured.
+    // One that does not come ends as not requested.
+    if state.cleanup_requested() == Some(true) {
+        let workspaces = state.plan().map_or(0, |plan| plan.workspaces);
+        let expected: &[&str] = if workspaces > 0 {
+            &["build", "docker"]
+        } else {
+            &["build"]
+        };
+        let missing = expected
+            .iter()
+            .filter(|key| {
+                !state
+                    .cleanup_steps()
+                    .iter()
+                    .any(|known| known.step == **key)
+            })
+            .map(|key| cleanup_label(key))
+            .collect();
+
+        subs.extend(reserved_rows(missing, step, is_live(state)));
+    }
+
+    subs
 }
 
 // `+3.20 s vs last`, `-120 ms vs last`, or `same as last` when the difference is small. A
@@ -287,15 +498,6 @@ fn row_for(state: &LiveState, stage: Stage, clock_ms: u64) -> Row {
                 .stage_elapsed_ms(stage, clock_ms)
                 .map(|ms| format_duration_ms(ms as f64));
 
-            let bar = if stage == Stage::Workload {
-                state.latest_sample().map(|sample| Bar {
-                    percent: (sample.progress.ratio() * 100.0).round() as u32,
-                    text: sample.progress.text(),
-                })
-            } else {
-                None
-            };
-
             // Asked to stop and still working on it
             let detail = if state.is_cancelling() {
                 join(Some("Stopping".to_string()), detail)
@@ -303,7 +505,7 @@ fn row_for(state: &LiveState, stage: Stage, clock_ms: u64) -> Row {
                 detail
             };
 
-            (Phase::Running, detail, time, bar)
+            (Phase::Running, detail, time, None)
         }
         StageState::Done {
             status,
@@ -340,6 +542,21 @@ fn row_for(state: &LiveState, stage: Stage, clock_ms: u64) -> Row {
         phase
     };
 
+    // The bar of the workload stays once the step ends, so the card does not shrink when it
+    // finishes. Before the first sample the place is held, see `Waiting`.
+    let bar = if stage == Stage::Workload
+        && matches!(
+            phase,
+            Phase::Running | Phase::Done | Phase::Failed | Phase::Cancelled
+        ) {
+        state.latest_sample().map(|sample| Bar {
+            percent: (sample.progress.ratio() * 100.0).round() as u32,
+            text: sample.progress.text(),
+        })
+    } else {
+        bar
+    };
+
     let finished_ms = match state.stage(stage) {
         StageState::Done { duration_ms, .. } if phase == Phase::Done => *duration_ms,
         _ => None,
@@ -358,7 +575,16 @@ fn row_for(state: &LiveState, stage: Stage, clock_ms: u64) -> Row {
         detail
     };
 
+    let waiting = waiting_for(
+        stage,
+        phase,
+        is_live(state),
+        detail.is_some(),
+        bar.is_some(),
+    );
+
     Row {
+        stage,
         label: stage.label(),
         phase,
         detail,
@@ -367,6 +593,7 @@ fn row_for(state: &LiveState, stage: Stage, clock_ms: u64) -> Row {
         finished_ms,
         change: None,
         subs,
+        waiting,
     }
 }
 
@@ -381,74 +608,101 @@ fn connector_class(phase: Phase) -> &'static str {
 
 #[component]
 fn StageRow(row: Row, last: bool) -> Element {
-    let marker = row.phase.marker_class();
-    let glyph = row.phase.glyph();
     let word = row.phase.word();
     let label_class = row.phase.label_class();
+    let detail_class = row.phase.detail_class();
     let line_class = connector_class(row.phase);
     // Spare height of the card is shared by the steps, the last one stays at the bottom
     let grow = if last { "" } else { "grow" };
+    // The last step has no step below it, so the line it keeps for its own detail is the room
+    // under it and it needs no padding there
+    let pad = if last {
+        "pt-(--space-3)"
+    } else {
+        "py-(--space-3)"
+    };
+    // Only the step that runs has a skeleton that moves, those still to come stay still
+    let motion = if row.phase == Phase::Running {
+        "sk-live"
+    } else {
+        "sk-still"
+    };
 
     rsx! {
-        li { class: "relative flex items-start gap-(--space-3) px-(--space-4) py-(--space-3) {grow}",
+        li { class: "relative flex items-start gap-(--space-3) px-(--space-4) {pad} {grow}",
             if !last {
                 span {
                     class: "absolute w-0.5 {line_class}",
-                    style: "left: calc(var(--space-4) + 0.75rem - 1px); top: calc(var(--space-3) + 1.5rem + 2px); bottom: calc(var(--space-3) * -1 + 2px);",
+                    style: "left: calc(var(--space-4) + 0.625rem - 1px); top: calc(var(--space-3) + 1.25rem + 2px); bottom: calc(var(--space-3) * -1 + 2px);",
                     "aria-hidden": "true",
                 }
             }
-            span {
-                class: "mt-px flex size-6 shrink-0 items-center justify-center rounded-(--round-full) text-(length:--fs-xs) font-(weight:--fw-semibold) {marker}",
-                "aria-hidden": "true",
-                "{glyph}"
-            }
+            Marker { phase: row.phase, size: 20 }
             div { class: "flex min-w-0 flex-1 flex-col gap-(--space-1)",
+                // First line: the name of the step and its time
                 div { class: "flex items-baseline justify-between gap-(--space-3)",
                     span { class: "text-(length:--fs-sm) font-(weight:--fw-medium) {label_class}",
                         "{row.label}"
                         span { class: "sr-only", " · {word}" }
                     }
-                    div { class: "flex shrink-0 flex-col items-end",
-                        if let Some(time) = row.time.clone() {
-                            span { class: "text-(length:--fs-xs) tabular-nums text-(color:--clr-text-muted)",
-                                "{time}"
-                            }
+                    if let Some(time) = row.time.clone() {
+                        span { class: "value-in shrink-0 text-(length:--fs-xs) tabular-nums text-(color:--clr-text-muted)",
+                            "{time}"
                         }
-                        if let Some(change) = row.change.clone() {
-                            span { class: "text-(length:--fs-2xs) tabular-nums {change.class}", "{change.text}" }
-                        }
+                    } else if row.waiting.time {
+                        div { class: "line-xs shrink-0", Skeleton { class: "h-3 w-10 {motion}" } }
                     }
                 }
-                if let Some(detail) = row.detail.clone() {
-                    span { class: "break-words text-(length:--fs-xs) text-(color:--clr-text-muted)",
-                        "{detail}"
+                // Second line: what the step measured on the left and how it compares with the
+                // last run on the right. Every step has this line, empty or not, so the steps
+                // follow each other at the same distance whatever they report.
+                div { class: "line-xs items-baseline",
+                    if let Some(detail) = row.detail.clone() {
+                        span { class: "value-in min-w-0 break-words text-(length:--fs-xs) {detail_class}",
+                            "{detail}"
+                        }
+                    } else if row.waiting.detail {
+                        WaitingDetail {
+                            stage: row.stage,
+                            motion,
+                            text_class: detail_class,
+                        }
+                    }
+                    if let Some(change) = row.change.clone() {
+                        span { class: "value-in ml-auto shrink-0 pl-(--space-3) text-(length:--fs-2xs) tabular-nums {change.class}",
+                            "{change.text}"
+                        }
+                    } else if row.waiting.change {
+                        div { class: "line-2xs ml-auto shrink-0 pl-(--space-3)",
+                            Skeleton { class: "h-2.5 w-16 {motion}" }
+                        }
                     }
                 }
                 if !row.subs.is_empty() {
                     ul { class: "mt-(--space-1) flex flex-col gap-(--space-2)",
                         for (index , sub) in row.subs.iter().enumerate() {
                             {
-                                let marker = sub.phase.marker_class();
-                                let glyph = sub.phase.glyph();
                                 let word = sub.phase.word();
                                 let label_class = sub.phase.label_class();
+                                let detail_class = sub.phase.detail_class();
 
                                 rsx! {
                                     li { key: "{index}", class: "flex items-start gap-(--space-2)",
-                                        span {
-                                            class: "mt-px flex size-4 shrink-0 items-center justify-center rounded-(--round-full) text-(length:--fs-2xs) font-(weight:--fw-semibold) {marker}",
-                                            "aria-hidden": "true",
-                                            "{glyph}"
-                                        }
+                                        Marker { phase: sub.phase, size: 16 }
                                         div { class: "flex min-w-0 flex-col",
                                             span { class: "text-(length:--fs-xs) font-(weight:--fw-medium) {label_class}",
                                                 "{sub.label}"
                                                 span { class: "sr-only", " · {word}" }
                                             }
-                                            if let Some(detail) = sub.detail.clone() {
-                                                span { class: "break-words text-(length:--fs-2xs) text-(color:--clr-text-muted)",
-                                                    "{detail}"
+                                            // The line is always there, so a row that reports no
+                                            // detail does not change height when it finishes
+                                            div { class: "line-2xs",
+                                                if let Some(detail) = sub.detail.clone() {
+                                                    span { class: "value-in min-w-0 break-words text-(length:--fs-2xs) {detail_class}",
+                                                        "{detail}"
+                                                    }
+                                                } else if sub.waiting {
+                                                    Skeleton { class: "h-2.5 w-32 {motion}" }
                                                 }
                                             }
                                         }
@@ -472,10 +726,44 @@ fn StageRow(row: Row, last: bool) -> Element {
                                 style: "width: {bar.percent}%",
                             }
                         }
-                        span { class: "text-(length:--fs-xs) tabular-nums text-(color:--clr-text-muted)",
+                        span { class: "value-in text-(length:--fs-xs) tabular-nums text-(color:--clr-text-muted)",
                             "{bar.text}"
                         }
                     }
+                } else if row.waiting.bar {
+                    // The empty track and the line below it, until the first sample arrives
+                    div { class: "mt-(--space-1) flex flex-col gap-(--space-1)",
+                        div { class: "h-1.5 w-full overflow-hidden rounded-(--round-full) bg-(--clr-surface-raised)" }
+                        div { class: "line-xs", Skeleton { class: "h-3 w-36 {motion}" } }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The line under a step while its values are awaited. The words the step always writes stay as
+// text and only the values are skeletons. The line has the room of the real one.
+#[component]
+fn WaitingDetail(stage: Stage, motion: &'static str, text_class: &'static str) -> Element {
+    let pieces = detail_shape(stage)
+        .iter()
+        .enumerate()
+        .map(|(index, piece)| {
+            let gap = if index == 0 { "" } else { "ml-(--space-1)" };
+
+            (index, *piece, gap)
+        });
+
+    rsx! {
+        div {
+            class: "line-xs text-(length:--fs-xs) {text_class}",
+            "aria-hidden": "true",
+            for (index , piece , gap) in pieces {
+                if let Piece::Value(width) = piece {
+                    Skeleton { key: "{index}", class: "h-3 {width} {gap} {motion}" }
+                } else if let Piece::Word(word) = piece {
+                    span { key: "{index}", class: "{gap}", "{word}" }
                 }
             }
         }
@@ -497,11 +785,13 @@ pub fn Pipeline(
             .iter()
             .map(|stage| {
                 let mut row = row_for(&state, *stage, clock_ms);
+                let last = averages.as_ref().and_then(|known| last_for(*stage, known));
 
                 row.change = row
                     .finished_ms
-                    .zip(averages.as_ref().and_then(|known| last_for(*stage, known)))
+                    .zip(last)
                     .map(|(duration, last)| change_vs_last(duration, last));
+                row.waiting.change = waits_for_change(row.phase, is_live(&state), last.is_some());
 
                 row
             })
@@ -527,17 +817,19 @@ pub fn Pipeline(
                 h3 { class: "text-(length:--fs-base) font-(weight:--fw-semibold) text-(color:--clr-text)",
                     "Pipeline"
                 }
-                span { class: "text-(length:--fs-xs) tabular-nums {count_class}", "{count_text}" }
-                div {
-                    role: "progressbar",
-                    "aria-valuemin": "0",
-                    "aria-valuemax": "100",
-                    "aria-valuenow": "{percent}",
-                    "aria-label": "Steps finished",
-                    class: "ml-auto h-1 w-24 overflow-hidden rounded-(--round-full) bg-(--clr-surface-raised)",
+                div { class: "ml-auto flex items-center gap-(--space-3)",
+                    span { class: "text-(length:--fs-xs) tabular-nums {count_class}", "{count_text}" }
                     div {
-                        class: "h-full rounded-(--round-full) transition-[width] {fill_class}",
-                        style: "width: {percent}%",
+                        role: "progressbar",
+                        "aria-valuemin": "0",
+                        "aria-valuemax": "100",
+                        "aria-valuenow": "{percent}",
+                        "aria-label": "Steps finished",
+                        class: "h-1 w-24 overflow-hidden rounded-(--round-full) bg-(--clr-surface-raised)",
+                        div {
+                            class: "h-full rounded-(--round-full) transition-[width] {fill_class}",
+                            style: "width: {percent}%",
+                        }
                     }
                 }
             }
@@ -841,6 +1133,8 @@ mod tests {
         );
 
         assert!(row_for(&state, Stage::Workload, 0).bar.is_none());
+        // The bar holds its place until then
+        assert!(row_for(&state, Stage::Workload, 0).waiting.bar);
 
         feed(
             &mut state,
@@ -859,6 +1153,71 @@ mod tests {
 
         assert_eq!(bar.percent, 25);
         assert_eq!(bar.text, "250 of 1,000 requests");
+        assert!(!row_for(&state, Stage::Workload, 0).waiting.bar);
+    }
+
+    #[test]
+    fn the_workload_bar_is_held_before_the_step_and_kept_after_it() {
+        let mut state = LiveState::new("r".to_string());
+
+        accepted(
+            &mut state,
+            json!({"mode": "requests", "requests": 1000, "concurrency": 2}),
+        );
+
+        // Not started: the place of the bar is held
+        let row = row_for(&state, Stage::Workload, 0);
+
+        assert!(row.bar.is_none());
+        assert!(row.waiting.bar);
+
+        feed(
+            &mut state,
+            2,
+            100,
+            "stage.started",
+            json!({"stage": "workload"}),
+        );
+        feed(
+            &mut state,
+            3,
+            600,
+            "sample",
+            json!({
+                "workload_elapsed_ms": 500, "memory": null, "cpu": null,
+                "http": { "completed": 1000, "successful": 1000, "failed": 0,
+                          "requests_per_second": 500.0,
+                          "progress": { "mode": "requests", "done": 1000, "total": 1000 } }
+            }),
+        );
+        feed(
+            &mut state,
+            4,
+            700,
+            "stage.completed",
+            json!({"stage": "workload", "status": "success", "duration_ms": 600}),
+        );
+
+        // Finished: the bar stays, so the card does not shrink
+        let row = row_for(&state, Stage::Workload, 0);
+
+        assert_eq!(row.phase, Phase::Done);
+        assert_eq!(row.bar.map(|bar| bar.percent), Some(100));
+        assert!(!row.waiting.bar);
+
+        // A run that ended before the workload does not wait for it
+        let mut state = LiveState::new("r".to_string());
+
+        accepted(&mut state, json!({"mode": "requests", "requests": 10}));
+        feed(
+            &mut state,
+            2,
+            5,
+            "run.failed",
+            json!({"code": "X", "message": "boom", "stage": "build", "persisted": false}),
+        );
+
+        assert!(!row_for(&state, Stage::Workload, 0).waiting.bar);
     }
 
     #[test]
@@ -950,6 +1309,7 @@ mod tests {
 
     fn row_in(phase: Phase) -> Row {
         Row {
+            stage: Stage::Discovery,
             label: "Step",
             phase,
             detail: None,
@@ -958,6 +1318,7 @@ mod tests {
             finished_ms: None,
             change: None,
             subs: Vec::new(),
+            waiting: Waiting::default(),
         }
     }
 
@@ -998,6 +1359,41 @@ mod tests {
     }
 
     #[test]
+    fn only_the_running_marker_turns_and_a_finished_one_pops_in() {
+        assert_eq!(Phase::Running.motion_class(), "mk-spin");
+        assert_eq!(Phase::Done.motion_class(), "pop-in");
+        assert_eq!(Phase::Failed.motion_class(), "pop-in");
+
+        for phase in [
+            Phase::Pending,
+            Phase::Cancelled,
+            Phase::Neutral,
+            Phase::Skipped,
+            Phase::NotRequested,
+        ] {
+            assert_eq!(phase.motion_class(), "");
+        }
+    }
+
+    #[test]
+    fn a_step_with_an_outcome_reads_dark_and_one_still_to_come_reads_grey() {
+        assert!(Phase::Done.label_class().contains("--clr-text)"));
+        assert!(Phase::Failed.label_class().contains("--clr-text)"));
+        assert!(Phase::Running.label_class().contains("text-muted"));
+        assert!(Phase::Pending.label_class().contains("text-muted"));
+        assert!(Phase::NotRequested.label_class().contains("text-faint"));
+    }
+
+    #[test]
+    fn only_a_failed_step_has_a_red_detail_line() {
+        assert!(Phase::Failed.detail_class().contains("danger"));
+
+        for phase in [Phase::Done, Phase::Running, Phase::Pending, Phase::Neutral] {
+            assert!(!phase.detail_class().contains("danger"));
+        }
+    }
+
+    #[test]
     fn steps_a_stopped_run_never_reached_say_so() {
         let mut state = LiveState::new("r".to_string());
 
@@ -1028,6 +1424,285 @@ mod tests {
             "workspace.phase",
             json!({"workspace": "subscriber", "mode": mode, "phase": phase, "status": status}),
         );
+    }
+
+    fn accepted_with(state: &mut LiveState, workspaces: u64, cleanup: bool) {
+        feed(
+            state,
+            1,
+            0,
+            "run.accepted",
+            json!({
+                "target": {"path": "/p"},
+                "plan": {"startup": true, "workload": null, "workspaces": workspaces, "cleanup": cleanup}
+            }),
+        );
+    }
+
+    fn labels(subs: &[SubRow]) -> Vec<&'static str> {
+        subs.iter().map(|sub| sub.label).collect()
+    }
+
+    #[test]
+    fn the_workspace_step_keeps_a_row_for_each_mode_before_it_reports() {
+        let mut state = LiveState::new("r".to_string());
+
+        accepted_with(&mut state, 1, false);
+        feed(
+            &mut state,
+            2,
+            100,
+            "stage.started",
+            json!({"stage": "workspaces"}),
+        );
+
+        let row = row_for(&state, Stage::Workspaces, 0);
+
+        assert_eq!(labels(&row.subs), ["Native", "Docker"]);
+        assert!(row
+            .subs
+            .iter()
+            .all(|sub| sub.phase == Phase::Pending && sub.waiting && sub.detail.is_none()));
+
+        // The number of rows stays the same while the modes report, only their state changes
+        workspace_phase(&mut state, 3, "native", "started", Value::Null);
+
+        let row = row_for(&state, Stage::Workspaces, 0);
+
+        assert_eq!(labels(&row.subs), ["Native", "Docker"]);
+        assert_eq!(row.subs[0].phase, Phase::Running);
+        assert!(!row.subs[0].waiting);
+        assert_eq!(row.subs[1].phase, Phase::Pending);
+        assert!(row.subs[1].waiting);
+
+        workspace_phase(&mut state, 4, "native", "finished", json!("success"));
+        workspace_phase(&mut state, 5, "docker", "sampling", Value::Null);
+
+        let row = row_for(&state, Stage::Workspaces, 0);
+
+        assert_eq!(labels(&row.subs), ["Native", "Docker"]);
+        assert_eq!(row.subs[0].phase, Phase::Done);
+        assert_eq!(row.subs[1].phase, Phase::Running);
+    }
+
+    #[test]
+    fn a_workspace_brings_its_two_modes_and_none_are_reserved_without_a_workspace() {
+        let mut state = LiveState::new("r".to_string());
+
+        accepted_with(&mut state, 2, false);
+
+        assert_eq!(
+            labels(&row_for(&state, Stage::Workspaces, 0).subs),
+            ["Native", "Docker", "Native", "Docker"]
+        );
+
+        let mut state = LiveState::new("r".to_string());
+
+        accepted_with(&mut state, 0, false);
+
+        assert!(row_for(&state, Stage::Workspaces, 0).subs.is_empty());
+    }
+
+    #[test]
+    fn a_mode_the_step_never_reported_ends_as_not_requested() {
+        let mut state = LiveState::new("r".to_string());
+
+        accepted_with(&mut state, 1, false);
+        feed(
+            &mut state,
+            2,
+            100,
+            "stage.started",
+            json!({"stage": "workspaces"}),
+        );
+        workspace_phase(&mut state, 3, "native", "started", Value::Null);
+        workspace_phase(&mut state, 4, "native", "finished", json!("success"));
+        feed(
+            &mut state,
+            5,
+            500,
+            "stage.completed",
+            json!({"stage": "workspaces", "status": "success", "duration_ms": 400}),
+        );
+
+        let row = row_for(&state, Stage::Workspaces, 0);
+
+        assert_eq!(row.phase, Phase::Done);
+        assert_eq!(labels(&row.subs), ["Native", "Docker"]);
+        assert_eq!(row.subs[1].phase, Phase::NotRequested);
+        assert_eq!(row.subs[1].detail.as_deref(), Some("Not requested"));
+        assert!(!row.subs[1].waiting);
+    }
+
+    #[test]
+    fn rows_a_stopped_run_never_reached_say_so_and_stop_waiting() {
+        let mut state = LiveState::new("r".to_string());
+
+        accepted_with(&mut state, 1, true);
+        feed(
+            &mut state,
+            2,
+            5,
+            "run.failed",
+            json!({"code": "X", "message": "boom", "stage": "build", "persisted": false}),
+        );
+
+        for stage in [Stage::Workspaces, Stage::Cleanup] {
+            let row = row_for(&state, stage, 0);
+
+            assert_eq!(row.subs.len(), 2);
+            assert!(row.subs.iter().all(|sub| {
+                sub.phase == Phase::Pending
+                    && !sub.waiting
+                    && sub.detail.as_deref() == Some("Not run")
+            }));
+        }
+    }
+
+    #[test]
+    fn the_cleanup_step_keeps_a_row_for_each_command_it_is_expected_to_run() {
+        let mut state = LiveState::new("r".to_string());
+
+        accepted_with(&mut state, 1, true);
+        feed(
+            &mut state,
+            2,
+            0,
+            "stage.started",
+            json!({"stage": "cleanup"}),
+        );
+
+        let row = row_for(&state, Stage::Cleanup, 0);
+
+        assert_eq!(labels(&row.subs), ["Build cleanup", "Docker cleanup"]);
+        assert!(row.subs.iter().all(|sub| sub.waiting));
+
+        cleanup_step(&mut state, 3, "build", "started", Value::Null, Value::Null);
+
+        let row = row_for(&state, Stage::Cleanup, 0);
+
+        assert_eq!(labels(&row.subs), ["Build cleanup", "Docker cleanup"]);
+        assert_eq!(row.subs[0].phase, Phase::Running);
+        assert!(!row.subs[0].waiting);
+        assert!(row.subs[1].waiting);
+
+        // Without a workspace there is no Docker cleanup to expect
+        let mut state = LiveState::new("r".to_string());
+
+        accepted_with(&mut state, 0, true);
+
+        assert_eq!(
+            labels(&row_for(&state, Stage::Cleanup, 0).subs),
+            ["Build cleanup"]
+        );
+    }
+
+    #[test]
+    fn values_a_live_run_has_not_reported_wait_as_skeletons_and_known_text_does_not() {
+        let mut state = LiveState::new("r".to_string());
+
+        accepted(&mut state, Value::Null);
+
+        // Not started: the time is awaited, the runtime line too
+        let discovery = row_for(&state, Stage::Discovery, 0);
+
+        assert!(discovery.waiting.time);
+        assert!(discovery.waiting.detail);
+
+        // The build has no line of its own, only a time
+        let build = row_for(&state, Stage::Build, 0);
+
+        assert!(build.waiting.time);
+        assert!(!build.waiting.detail);
+
+        // A step that was not requested never reports, so it does not wait
+        let baseline = row_for(&state, Stage::Baseline, 0);
+
+        assert_eq!(baseline.phase, Phase::NotRequested);
+        assert_eq!(baseline.waiting, Waiting::default());
+
+        // The runtime is known once measured, so it shows as text
+        feed(
+            &mut state,
+            2,
+            10,
+            "measurement.available",
+            json!({"metric": "discovery", "value": {"runtime": "bun"}}),
+        );
+
+        let discovery = row_for(&state, Stage::Discovery, 0);
+
+        assert_eq!(discovery.detail.as_deref(), Some("Runtime bun"));
+        assert!(!discovery.waiting.detail);
+
+        // A running step shows its own elapsed time, not a skeleton
+        feed(
+            &mut state,
+            3,
+            20,
+            "stage.started",
+            json!({"stage": "discovery"}),
+        );
+
+        assert!(!row_for(&state, Stage::Discovery, 0).waiting.time);
+
+        // Once the run ended, what never came is not awaited
+        feed(
+            &mut state,
+            4,
+            30,
+            "run.failed",
+            json!({"code": "X", "message": "boom", "stage": "build", "persisted": false}),
+        );
+
+        assert!(!row_for(&state, Stage::Build, 0).waiting.time);
+        assert!(!row_for(&state, Stage::ArtifactSize, 0).waiting.detail);
+    }
+
+    #[test]
+    fn a_step_waits_for_its_comparison_only_when_the_last_run_has_a_time() {
+        assert!(waits_for_change(Phase::Pending, true, true));
+        assert!(waits_for_change(Phase::Running, true, true));
+        assert!(!waits_for_change(Phase::Pending, true, false));
+        assert!(!waits_for_change(Phase::Done, true, true));
+        assert!(!waits_for_change(Phase::Running, false, true));
+    }
+
+    // The words of a shape must be the ones the step writes, in the same order, or the real text
+    // would not look like the line it replaces
+    fn words_come_in_order(stage: Stage, text: &str) -> bool {
+        let mut rest = text;
+
+        detail_shape(stage).iter().all(|piece| match piece {
+            Piece::Word(word) => match rest.find(word) {
+                Some(at) => {
+                    rest = &rest[at + word.len()..];
+                    true
+                }
+                None => false,
+            },
+            Piece::Value(_) => true,
+        })
+    }
+
+    #[test]
+    fn the_waiting_line_keeps_the_words_a_step_writes_and_only_its_values_wait() {
+        // The lines the state writes for these steps, see its tests
+        assert!(words_come_in_order(Stage::Discovery, "Runtime bun"));
+        assert!(words_come_in_order(
+            Stage::ArtifactSize,
+            "Source 1.20 MiB · build output 3.40 MiB"
+        ));
+        assert!(words_come_in_order(Stage::Baseline, "Idle memory 70.0 MiB"));
+        assert!(!words_come_in_order(Stage::Baseline, "Runtime bun"));
+
+        // Every step that waits for a line has a value to wait for, and starts with its words
+        for stage in Stage::ALL.iter().filter(|stage| reports_detail(**stage)) {
+            let shape = detail_shape(*stage);
+
+            assert!(matches!(shape.first(), Some(Piece::Word(_))), "{stage:?}");
+            assert!(shape.iter().any(|piece| matches!(piece, Piece::Value(_))));
+        }
     }
 
     #[test]
