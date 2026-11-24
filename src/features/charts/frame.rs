@@ -25,11 +25,14 @@ pub enum XAlign {
 
 // Axes, dashed grid lines and the plot area that `children` is drawn into.
 // The plot has half a label of space above and below, so tick labels line up with their lines.
+// With `fill` the plot is never lower than `--chart-height` but grows into the height its parent
+// has left over, the parent has to be a flex column for that.
 #[component]
 pub fn PlotFrame(
     domain: Domain,
     format: ValueFormat,
     x_labels: Vec<(String, XAlign)>,
+    #[props(default)] fill: bool,
     children: Element,
 ) -> Element {
     let tick_labels: Vec<String> = domain
@@ -52,9 +55,18 @@ pub fn PlotFrame(
         })
         .collect();
 
+    let (frame_class, plot_class) = if fill {
+        (
+            "flex w-full flex-1 flex-col",
+            "flex min-h-(--chart-height) flex-1",
+        )
+    } else {
+        ("flex w-full flex-col", "flex h-(--chart-height)")
+    };
+
     rsx! {
-        div { class: "flex w-full flex-col",
-            div { class: "flex h-(--chart-height)",
+        div { class: "{frame_class}",
+            div { class: "{plot_class}",
                 div { class: "flex w-14 shrink-0 flex-col-reverse justify-between",
                     for (index , label) in tick_labels.into_iter().enumerate() {
                         span {

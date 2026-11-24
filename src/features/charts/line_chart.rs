@@ -33,6 +33,18 @@ struct Dot {
     class: String,
 }
 
+// Half the width of a `Peak ...` label, so the label can stay inside the plot at any chart width
+const PEAK_LABEL_HALF_WIDTH: &str = "3rem";
+
+// Side of the plot the dashed-line label sits on. It takes the side the highest point is not on,
+// so the `Peak ...` label and the dashed-line label never land on top of each other.
+fn reference_label_class(peak_percent: Option<f64>) -> &'static str {
+    match peak_percent {
+        Some(percent) if percent >= 50.0 => "left-1",
+        _ => "right-1",
+    }
+}
+
 // Line and area mark over evenly spaced points, gaps stay gaps and are never drawn as zero
 #[component]
 pub fn TrendChart(
@@ -48,6 +60,8 @@ pub fn TrendChart(
     #[props(default)] live: bool,
     // Names the highest point
     #[props(default)] mark_peak: bool,
+    // Grows the plot into the height its parent leaves over, the parent has to be a flex column
+    #[props(default)] fill: bool,
 ) -> Element {
     let hovered = use_signal(|| None::<usize>);
 
@@ -125,10 +139,29 @@ pub fn TrendChart(
         Vec::new()
     };
 
-    // Top position and label of the reference line
-    let reference_view = reference
-        .as_ref()
-        .map(|line| (format!("{:.2}%", scale.map(line.value)), line.label.clone()));
+    // Index and value of the highest point
+    let peak_point = if mark_peak {
+        points
+            .iter()
+            .enumerate()
+            .filter_map(|(index, point)| point.value.map(|value| (index, value)))
+            .fold(None::<(usize, f64)>, |best, current| match best {
+                Some(best) if best.1 >= current.1 => Some(best),
+                _ => Some(current),
+            })
+    } else {
+        None
+    };
+
+    // Top position, label and side of the reference line
+    let reference_class = reference_label_class(peak_point.map(|(index, _)| x_percent(index)));
+    let reference_view = reference.as_ref().map(|line| {
+        (
+            format!("{:.2}%", scale.map(line.value)),
+            line.label.clone(),
+            reference_class,
+        )
+    });
 
     // Position of the newest point, where the pulse sits
     let ping = if live {
@@ -141,26 +174,18 @@ pub fn TrendChart(
         None
     };
 
-    // Position and text of the highest point
-    let peak = if mark_peak {
-        points
-            .iter()
-            .enumerate()
-            .filter_map(|(index, point)| point.value.map(|value| (index, value)))
-            .fold(None::<(usize, f64)>, |best, current| match best {
-                Some(best) if best.1 >= current.1 => Some(best),
-                _ => Some(current),
-            })
-            .map(|(index, value)| {
-                (
-                    format!("{:.2}%", x_percent(index)),
-                    format!("{:.2}%", scale.map(value)),
-                    format!("Peak {}", format_optional(Some(value), format)),
-                )
-            })
-    } else {
-        None
-    };
+    // Position and text of the highest point. The label is centered on the point but kept inside
+    // the plot, so a peak at the far right or left never spills over the edge.
+    let peak = peak_point.map(|(index, value)| {
+        (
+            format!(
+                "clamp({PEAK_LABEL_HALF_WIDTH}, {:.2}%, calc(100% - {PEAK_LABEL_HALF_WIDTH}))",
+                x_percent(index)
+            ),
+            format!("{:.2}%", scale.map(value)),
+            format!("Peak {}", format_optional(Some(value), format)),
+        )
+    });
 
     let active = hovered();
 
@@ -229,10 +254,15 @@ pub fn TrendChart(
 
     let stroke = tone.stroke_class();
     let soft = tone.soft_fill_class();
+    let wrapper_class = if fill {
+        "flex w-full flex-1 flex-col"
+    } else {
+        "w-full"
+    };
 
     rsx! {
-        div { class: "w-full", "role": "group", "aria-label": "{title}",
-            PlotFrame { domain: domain.clone(), format, x_labels,
+        div { class: "{wrapper_class}", "role": "group", "aria-label": "{title}",
+            PlotFrame { domain: domain.clone(), format, x_labels, fill,
                 svg {
                     class: "absolute inset-0 h-full w-full",
                     view_box: "0 0 100 100",
@@ -257,13 +287,13 @@ pub fn TrendChart(
                         }
                     }
                 }
-                if let Some((top , label)) = reference_view {
+                if let Some((top , label , side)) = reference_view {
                     div {
                         class: "pointer-events-none absolute inset-x-0 border-t border-dashed border-(color:--clr-text-muted)",
                         style: "top: {top}",
                     }
                     span {
-                        class: "pointer-events-none absolute right-1 -translate-y-full whitespace-nowrap text-(length:--fs-2xs) text-(color:--clr-text-muted)",
+                        class: "pointer-events-none absolute {side} -translate-y-full whitespace-nowrap text-(length:--fs-2xs) text-(color:--clr-text-muted)",
                         style: "top: {top}",
                         "{label}"
                     }
@@ -300,5 +330,22 @@ pub fn TrendChart(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_dashed_line_label_takes_the_side_the_peak_is_not_on() {
+        assert_eq!(reference_label_class(Some(97.0)), "left-1");
+        assert_eq!(reference_label_class(Some(50.0)), "left-1");
+        assert_eq!(reference_label_class(Some(12.0)), "right-1");
+    }
+
+    #[test]
+    fn without_a_marked_peak_the_dashed_line_label_stays_on_the_right() {
+        assert_eq!(reference_label_class(None), "right-1");
     }
 }

@@ -112,6 +112,9 @@ pub fn LiveChartCard(
     #[props(default)] higher_is_better: bool,
     // Drawn inside a group card, so without a card of its own
     #[props(default)] bare: bool,
+    // Only with `bare`: grows into the height its parent leaves over, never lower than the usual
+    // chart height
+    #[props(default)] fill: bool,
 ) -> Element {
     let values: Vec<f64> = points.iter().filter_map(|point| point.value).collect();
     let peak = values.iter().copied().reduce(f64::max);
@@ -132,8 +135,14 @@ pub fn LiveChartCard(
     });
 
     if bare {
+        let root_class = if fill {
+            "flex min-w-0 flex-1 flex-col gap-(--space-2)"
+        } else {
+            "flex min-w-0 flex-col gap-(--space-2)"
+        };
+
         return rsx! {
-            div { class: "flex min-w-0 flex-col gap-(--space-2)",
+            div { class: "{root_class}",
                 div { class: "flex flex-wrap items-center justify-between gap-(--space-2)",
                     h4 { class: "text-(length:--fs-sm) font-(weight:--fw-semibold) text-(color:--clr-text)",
                         "{title}"
@@ -156,6 +165,7 @@ pub fn LiveChartCard(
                     ghost,
                     live,
                     mark_peak: true,
+                    fill,
                 }
             }
         };

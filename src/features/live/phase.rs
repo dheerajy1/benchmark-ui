@@ -128,8 +128,10 @@ fn BuildProgress(view: LiveState, last_build: Option<u64>, clock: Signal<u64>) -
     }
 }
 
-// The workload: throughput on the full width, memory and CPU side by side under it. It also
-// stands in for the build before the workload starts, and says so when there is no workload.
+// The workload: throughput on the full width, memory and CPU side by side under it. The card is
+// as tall as the pipeline beside it, so the charts share the spare height, throughput taking 3
+// parts and memory with CPU 2. It also stands in for the build before the workload starts, and
+// says so when there is no workload.
 #[component]
 pub fn WorkloadGroup(
     state: Signal<LiveState>,
@@ -195,21 +197,25 @@ pub fn WorkloadGroup(
             chips,
             if has_samples {
                 div { class: "flex flex-1 flex-col gap-(--space-4)",
-                    LiveChartCard {
-                        bare: true,
-                        title: "Throughput",
-                        points: throughput,
-                        format: ValueFormat::PerSecond,
-                        tone: ChartTone::Blue,
-                        last: last.throughput,
-                        last_label: "Last run average",
-                        live: running,
-                        compare_latest: true,
-                        higher_is_better: true,
-                    }
-                    div { class: "grid grid-cols-1 gap-(--space-4) md:grid-cols-2",
+                    div { class: "flex flex-[3_1_auto] flex-col",
                         LiveChartCard {
                             bare: true,
+                            fill: true,
+                            title: "Throughput",
+                            points: throughput,
+                            format: ValueFormat::PerSecond,
+                            tone: ChartTone::Blue,
+                            last: last.throughput,
+                            last_label: "Last run average",
+                            live: running,
+                            compare_latest: true,
+                            higher_is_better: true,
+                        }
+                    }
+                    div { class: "grid flex-[2_1_auto] grid-cols-1 gap-(--space-4) md:grid-cols-2",
+                        LiveChartCard {
+                            bare: true,
+                            fill: true,
                             title: "Memory (RSS)",
                             points: memory,
                             format: ValueFormat::Bytes,
@@ -221,6 +227,7 @@ pub fn WorkloadGroup(
                         }
                         LiveChartCard {
                             bare: true,
+                            fill: true,
                             title: "CPU",
                             points: cpu,
                             format: ValueFormat::Percent,

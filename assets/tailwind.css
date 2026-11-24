@@ -604,6 +604,9 @@
   .max-h-full {
     max-height: 100%;
   }
+  .min-h-\(--chart-height\) {
+    min-height: var(--chart-height);
+  }
   .min-h-0 {
     min-height: calc(var(--spacing) * 0);
   }
@@ -759,6 +762,12 @@
   }
   .flex-1 {
     flex: 1;
+  }
+  .flex-\[2_1_auto\] {
+    flex: 2 1 auto;
+  }
+  .flex-\[3_1_auto\] {
+    flex: 3 1 auto;
   }
   .shrink {
     flex-shrink: 1;
