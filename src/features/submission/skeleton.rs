@@ -192,96 +192,97 @@ pub fn SwitchSkeleton() -> Element {
 }
 
 // Right column: the summary panel and the previous runs. On wide screens it is cut where the
-// form column ends, with a blur strip over the contents of its bottom edge to show that there is
-// more. The dashed border stays outside the strip.
+// form column ends. The contents sit in a layer that fades out over its last 3rem to show that
+// there is more, while the dashed bottom border of the column stays sharp outside that layer.
 #[component]
 pub fn PanelSkeleton() -> Element {
     rsx! {
         div {
             "aria-hidden": "true",
-            class: "relative flex min-w-0 flex-col gap-(--space-4) lg:h-0 lg:min-h-full lg:self-stretch lg:overflow-hidden lg:rounded-b-(--round-lg) lg:border-b lg:border-dashed lg:border-(color:--clr-border-strong)",
-            SkCard { class: "flex shrink-0 flex-col gap-(--space-4) [--sk-delay:100ms]",
-                div { class: "flex flex-col gap-(--space-2)",
-                    Ghost {
-                        text: "What will run",
-                        class: "text-(length:--fs-base) font-(weight:--fw-semibold)",
-                    }
+            class: "relative min-w-0 lg:h-0 lg:min-h-full lg:self-stretch lg:overflow-hidden lg:rounded-b-(--round-lg) lg:border-b lg:border-dashed lg:border-(color:--clr-border-strong)",
+            div { class: "fade-mask flex flex-col gap-(--space-4) lg:absolute lg:inset-0 lg:overflow-hidden lg:[--fade-bottom:3rem]",
+                SkCard { class: "flex shrink-0 flex-col gap-(--space-4) [--sk-delay:100ms]",
                     div { class: "flex flex-col gap-(--space-2)",
-                        for (label , width) in SUMMARY_BARS {
-                            div { key: "{label}", class: "flex flex-col gap-1",
-                                Ghost {
-                                    text: label,
-                                    class: "text-(length:--fs-2xs) font-(weight:--fw-medium) uppercase tracking-wider",
-                                }
-                                Skeleton { class: "h-3.5 {width}" }
-                            }
-                        }
-                    }
-                }
-                div { class: "flex flex-col gap-(--space-2) border-t border-dotted border-(color:--clr-border-strong) pt-(--space-3)",
-                    div { class: "flex flex-col gap-1",
                         Ghost {
-                            text: "Estimated time",
-                            class: "text-(length:--fs-2xs) font-(weight:--fw-medium) uppercase tracking-wider",
+                            text: "What will run",
+                            class: "text-(length:--fs-base) font-(weight:--fw-semibold)",
                         }
-                        Skeleton { class: "h-3.5 w-14" }
-                    }
-                    ul { class: "flex flex-col gap-(--space-2)",
-                        for step in STEPS {
-                            li { key: "{step}", class: "flex flex-col gap-1",
-                                div { class: "flex items-center justify-between gap-(--space-2)",
-                                    Ghost { text: step, class: "text-(length:--fs-xs)" }
-                                    Skeleton { class: "h-2.5 w-8 shrink-0" }
+                        div { class: "flex flex-col gap-(--space-2)",
+                            for (label , width) in SUMMARY_BARS {
+                                div { key: "{label}", class: "flex flex-col gap-1",
+                                    Ghost {
+                                        text: label,
+                                        class: "text-(length:--fs-2xs) font-(weight:--fw-medium) uppercase tracking-wider",
+                                    }
+                                    Skeleton { class: "h-3.5 {width}" }
                                 }
-                                div { class: "h-1 rounded-(--round-full) bg-(--clr-border)" }
                             }
                         }
                     }
-                }
-                div { class: "flex items-start gap-(--space-2) border-t border-dotted border-(color:--clr-border-strong) pt-(--space-3)",
-                    span { class: "mx-1.5 mt-1.5 inline-block size-1.5 shrink-0 rounded-(--round-full) bg-(--clr-border-strong)" }
-                    Ghost {
-                        text: "A saved target is chosen",
-                        class: "text-(length:--fs-sm)",
+                    div { class: "flex flex-col gap-(--space-2) border-t border-dotted border-(color:--clr-border-strong) pt-(--space-3)",
+                        div { class: "flex flex-col gap-1",
+                            Ghost {
+                                text: "Estimated time",
+                                class: "text-(length:--fs-2xs) font-(weight:--fw-medium) uppercase tracking-wider",
+                            }
+                            Skeleton { class: "h-3.5 w-14" }
+                        }
+                        ul { class: "flex flex-col gap-(--space-2)",
+                            for step in STEPS {
+                                li { key: "{step}", class: "flex flex-col gap-1",
+                                    div { class: "flex items-center justify-between gap-(--space-2)",
+                                        Ghost { text: step, class: "text-(length:--fs-xs)" }
+                                        Skeleton { class: "h-2.5 w-8 shrink-0" }
+                                    }
+                                    div { class: "h-1 rounded-(--round-full) bg-(--clr-border)" }
+                                }
+                            }
+                        }
+                    }
+                    div { class: "flex items-start gap-(--space-2) border-t border-dotted border-(color:--clr-border-strong) pt-(--space-3)",
+                        span { class: "mx-1.5 mt-1.5 inline-block size-1.5 shrink-0 rounded-(--round-full) bg-(--clr-border-strong)" }
+                        Ghost {
+                            text: "A saved target is chosen",
+                            class: "text-(length:--fs-sm)",
+                        }
+                    }
+                    div { class: "flex h-(--control-height) items-center justify-center rounded-(--round-md) border border-dashed border-(color:--clr-border-strong)",
+                        Ghost {
+                            text: "Run benchmark",
+                            class: "text-(length:--fs-sm) font-(weight:--fw-medium)",
+                        }
                     }
                 }
-                div { class: "flex h-(--control-height) items-center justify-center rounded-(--round-md) border border-dashed border-(color:--clr-border-strong)",
-                    Ghost {
-                        text: "Run benchmark",
-                        class: "text-(length:--fs-sm) font-(weight:--fw-medium)",
+                SkCard { class: "flex shrink-0 flex-col gap-(--space-3) [--sk-delay:250ms]",
+                    div { class: "flex flex-col",
+                        Ghost {
+                            text: "Previous runs",
+                            class: "text-(length:--fs-base) font-(weight:--fw-semibold)",
+                        }
+                        Ghost {
+                            text: "Runs with the same settings are grouped. Choosing one fills the form.",
+                            class: "text-(length:--fs-xs)",
+                        }
+                    }
+                    for index in 0..2 {
+                        div {
+                            key: "{index}",
+                            class: "flex flex-col gap-(--space-2) rounded-(--round-md) border border-dashed border-(color:--clr-border-strong) bg-(--clr-surface-raised) p-(--space-3)",
+                            div { class: "flex items-center justify-between gap-(--space-2)",
+                                Skeleton { class: "h-3 w-12" }
+                                Skeleton { class: "h-3 w-16" }
+                            }
+                            Skeleton { class: "h-3.5 w-4/5" }
+                            Skeleton { class: "h-3 w-2/3" }
+                            div { class: "flex items-center justify-between gap-(--space-2)",
+                                Skeleton { class: "h-3 w-14" }
+                                Skeleton { class: "h-3 w-8" }
+                            }
+                            Skeleton { class: "h-8 w-full" }
+                        }
                     }
                 }
             }
-            SkCard { class: "flex shrink-0 flex-col gap-(--space-3) [--sk-delay:250ms]",
-                div { class: "flex flex-col",
-                    Ghost {
-                        text: "Previous runs",
-                        class: "text-(length:--fs-base) font-(weight:--fw-semibold)",
-                    }
-                    Ghost {
-                        text: "Runs with the same settings are grouped. Choosing one fills the form.",
-                        class: "text-(length:--fs-xs)",
-                    }
-                }
-                for index in 0..2 {
-                    div {
-                        key: "{index}",
-                        class: "flex flex-col gap-(--space-2) rounded-(--round-md) border border-dashed border-(color:--clr-border-strong) bg-(--clr-surface-raised) p-(--space-3)",
-                        div { class: "flex items-center justify-between gap-(--space-2)",
-                            Skeleton { class: "h-3 w-12" }
-                            Skeleton { class: "h-3 w-16" }
-                        }
-                        Skeleton { class: "h-3.5 w-4/5" }
-                        Skeleton { class: "h-3 w-2/3" }
-                        div { class: "flex items-center justify-between gap-(--space-2)",
-                            Skeleton { class: "h-3 w-14" }
-                            Skeleton { class: "h-3 w-8" }
-                        }
-                        Skeleton { class: "h-8 w-full" }
-                    }
-                }
-            }
-            div { class: "blur-strip hidden lg:block" }
         }
     }
 }

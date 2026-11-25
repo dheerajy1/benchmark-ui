@@ -1633,10 +1633,6 @@
     --tw-ring-shadow: var(--tw-ring-inset,) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
-  .blur {
-    --tw-blur: blur(8px);
-    filter: var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,);
-  }
   .filter {
     filter: var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,);
   }
@@ -2397,9 +2393,19 @@
       text-align: right;
     }
   }
+  .lg\:absolute {
+    @media (width >= 64rem) {
+      position: absolute;
+    }
+  }
   .lg\:sticky {
     @media (width >= 64rem) {
       position: sticky;
+    }
+  }
+  .lg\:inset-0 {
+    @media (width >= 64rem) {
+      inset: calc(var(--spacing) * 0);
     }
   }
   .lg\:top-\[calc\(var\(--topbar-height\)\+1rem\)\] {
@@ -2415,11 +2421,6 @@
   .lg\:row-span-2 {
     @media (width >= 64rem) {
       grid-row: span 2 / span 2;
-    }
-  }
-  .lg\:block {
-    @media (width >= 64rem) {
-      display: block;
     }
   }
   .lg\:hidden {
@@ -2538,6 +2539,11 @@
   .lg\:\[--chart-height\:27rem\] {
     @media (width >= 64rem) {
       --chart-height: 27rem;
+    }
+  }
+  .lg\:\[--fade-bottom\:3rem\] {
+    @media (width >= 64rem) {
+      --fade-bottom: 3rem;
     }
   }
   .xl\:grid-cols-3 {
@@ -2744,61 +2750,17 @@
     animation: skeleton-pulse 1.8s ease-in-out infinite;
     animation-delay: var(--sk-delay, 0ms);
   }
-  .blur-strip {
-    position: absolute;
-    inset-inline: 1px;
-    bottom: 0;
-    height: 3.75rem;
-    pointer-events: none;
-    -webkit-backdrop-filter: blur(4px);
-    backdrop-filter: blur(4px);
-    background: linear-gradient( to bottom, transparent, var(--clr-canvas) );
-    @supports (color: color-mix(in lab, red, red)) {
-      background: linear-gradient( to bottom, transparent, color-mix(in srgb, var(--clr-canvas) 50%, transparent) );
-    }
-    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 55%);
-    mask-image: linear-gradient(to bottom, transparent, #000 55%);
-  }
-  .scroll-blur {
-    position: sticky;
-    z-index: 10;
-    height: 3rem;
-    margin-inline: 1px;
-    pointer-events: none;
-    opacity: 0;
-    -webkit-backdrop-filter: blur(4px);
-    backdrop-filter: blur(4px);
-  }
-  .scroll-blur-top {
-    top: 0;
-    margin-bottom: -3rem;
-    background: linear-gradient( to top, transparent, var(--clr-canvas) );
-    @supports (color: color-mix(in lab, red, red)) {
-      background: linear-gradient( to top, transparent, color-mix(in srgb, var(--clr-canvas) 50%, transparent) );
-    }
-    -webkit-mask-image: linear-gradient(to top, transparent, #000 55%);
-    mask-image: linear-gradient(to top, transparent, #000 55%);
-  }
-  .scroll-blur-bottom {
-    bottom: 0;
-    margin-top: -3rem;
-    background: linear-gradient( to bottom, transparent, var(--clr-canvas) );
-    @supports (color: color-mix(in lab, red, red)) {
-      background: linear-gradient( to bottom, transparent, color-mix(in srgb, var(--clr-canvas) 50%, transparent) );
-    }
-    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 55%);
-    mask-image: linear-gradient(to bottom, transparent, #000 55%);
+  .fade-mask {
+    mask-image: linear-gradient( to bottom, transparent, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent ), linear-gradient(#000, #000), linear-gradient(#000, #000);
+    mask-size: calc(100% - 2px) 100%, 1px 100%, 1px 100%;
+    mask-position: center, left, right;
+    mask-repeat: no-repeat;
   }
   @supports (animation-timeline: scroll()) {
-    .scroll-blur-top {
-      animation: fade-in linear both;
-      animation-timeline: scroll(nearest block);
-      animation-range: 0 3rem;
-    }
-    .scroll-blur-bottom {
-      animation: fade-in linear both reverse;
-      animation-timeline: scroll(nearest block);
-      animation-range: calc(100% - 3rem) 100%;
+    .scroll-fade {
+      animation: edge-fade-top linear both, edge-fade-bottom linear both;
+      animation-timeline: scroll(self), scroll(self);
+      animation-range: 0 3rem, calc(100% - 3rem) 100%;
     }
   }
   .sk-live {
@@ -3089,6 +3051,32 @@
   }
   to {
     opacity: 1;
+  }
+}
+@property --fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes edge-fade-top {
+  from {
+    --fade-top: 0px;
+  }
+  to {
+    --fade-top: 3rem;
+  }
+}
+@keyframes edge-fade-bottom {
+  from {
+    --fade-bottom: 3rem;
+  }
+  to {
+    --fade-bottom: 0px;
   }
 }
 @keyframes shake {
@@ -3479,6 +3467,8 @@
       --tw-scale-x: 1;
       --tw-scale-y: 1;
       --tw-scale-z: 1;
+      --fade-top: 0px;
+      --fade-bottom: 0px;
     }
   }
 }

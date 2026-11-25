@@ -220,74 +220,45 @@
     animation-delay: var(--sk-delay, 0ms);
   }
 
-  /* A strip over the bottom of a clipped box. It blurs what is under it, more towards the bottom,
-     and stops 1px short of each side so the borders of the box stay sharp. The box must be
-     relative and clip its contents. */
-  .blur-strip {
-    position: absolute;
-    inset-inline: 1px;
-    bottom: 0;
-    height: 3.75rem;
-    pointer-events: none;
-    -webkit-backdrop-filter: blur(4px);
-    backdrop-filter: blur(4px);
-    background: linear-gradient(
-      to bottom,
-      transparent,
-      color-mix(in srgb, var(--clr-canvas) 50%, transparent)
-    );
-    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 55%);
-    mask-image: linear-gradient(to bottom, transparent, #000 55%);
+  /* Fade masking: the contents of a box dissolve into the page background towards its top and
+     bottom edge, with no blur. --fade-top and --fade-bottom are the lengths of the two fades and
+     are 0 by default, so nothing fades. The 1px columns at the left and right stay solid, so the
+     lines of cards that touch the sides stay sharp. Put the class on the layer that holds the
+     contents, never on a box that draws its own border. */
+  .fade-mask {
+    mask-image:
+      linear-gradient(
+        to bottom,
+        transparent,
+        #000 var(--fade-top),
+        #000 calc(100% - var(--fade-bottom)),
+        transparent
+      ),
+      linear-gradient(#000, #000), linear-gradient(#000, #000);
+    mask-size:
+      calc(100% - 2px) 100%,
+      1px 100%,
+      1px 100%;
+    mask-position:
+      center,
+      left,
+      right;
+    mask-repeat: no-repeat;
   }
 
-  /* Strips over the top and bottom edges of a box that scrolls. They stick to the edges and blur
-     only the contents under them, and stop 1px short of each side so the borders stay sharp. A
-     strip shows only while there is more to scroll that way: the top one fades in over the first
-     3rem of scrolling, the bottom one fades out over the last 3rem. Browsers without scroll-driven
-     animations show no strip. The box is the scroller, with the top strip as its first child and
-     the bottom strip as its last. */
-  .scroll-blur {
-    position: sticky;
-    z-index: 10;
-    height: 3rem;
-    margin-inline: 1px;
-    pointer-events: none;
-    opacity: 0;
-    -webkit-backdrop-filter: blur(4px);
-    backdrop-filter: blur(4px);
-  }
-  .scroll-blur-top {
-    top: 0;
-    margin-bottom: -3rem;
-    background: linear-gradient(
-      to top,
-      transparent,
-      color-mix(in srgb, var(--clr-canvas) 50%, transparent)
-    );
-    -webkit-mask-image: linear-gradient(to top, transparent, #000 55%);
-    mask-image: linear-gradient(to top, transparent, #000 55%);
-  }
-  .scroll-blur-bottom {
-    bottom: 0;
-    margin-top: -3rem;
-    background: linear-gradient(
-      to bottom,
-      transparent,
-      color-mix(in srgb, var(--clr-canvas) 50%, transparent)
-    );
-    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 55%);
-    mask-image: linear-gradient(to bottom, transparent, #000 55%);
-  }
+  /* For a box that scrolls, next to .fade-mask. The top fade grows from 0 to 3rem over the first
+     3rem of scrolling and the bottom fade shrinks to 0 over the last 3rem, so nothing fades at the
+     very top or bottom, nor when everything fits. The box is the scroller. Browsers without
+     scroll-driven animations show no fade. */
   @supports (animation-timeline: scroll()) {
-    .scroll-blur-top {
-      animation: fade-in linear both;
-      animation-timeline: scroll(nearest block);
-      animation-range: 0 3rem;
-    }
-    .scroll-blur-bottom {
-      animation: fade-in linear both reverse;
-      animation-timeline: scroll(nearest block);
-      animation-range: calc(100% - 3rem) 100%;
+    .scroll-fade {
+      animation:
+        edge-fade-top linear both,
+        edge-fade-bottom linear both;
+      animation-timeline: scroll(self), scroll(self);
+      animation-range:
+        0 3rem,
+        calc(100% - 3rem) 100%;
     }
   }
 
@@ -641,6 +612,38 @@
   }
   to {
     opacity: 1;
+  }
+}
+
+/* The two fade lengths of .fade-mask. They are registered as lengths so that a scroll-driven
+   animation can move them. */
+@property --fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes edge-fade-top {
+  from {
+    --fade-top: 0px;
+  }
+  to {
+    --fade-top: 3rem;
+  }
+}
+
+@keyframes edge-fade-bottom {
+  from {
+    --fade-bottom: 3rem;
+  }
+  to {
+    --fade-bottom: 0px;
   }
 }
 

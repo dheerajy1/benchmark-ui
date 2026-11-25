@@ -818,19 +818,11 @@ pub fn Submission(#[props(default)] from_run: Option<String>, target: String) ->
                 if loading {
                     PanelSkeleton {}
                 } else {
-                    aside { class: "lg:sticky lg:top-[calc(var(--topbar-height)+1rem)] lg:max-h-[calc(100vh-var(--topbar-height)-2rem)] lg:overflow-y-auto",
-                        // Blur strips over its top and bottom edges while there is more to scroll
-                        div {
-                            class: "scroll-blur scroll-blur-top hidden lg:block",
-                            "aria-hidden": "true",
-                        }
+                    aside { class: "fade-mask scroll-fade lg:sticky lg:top-[calc(var(--topbar-height)+1rem)] lg:max-h-[calc(100vh-var(--topbar-height)-2rem)] lg:overflow-y-auto",
+                        // The contents fade at its top and bottom edge while there is more to scroll
                         div { class: "flex flex-col gap-(--space-4)",
                             {side}
                             {previous}
-                        }
-                        div {
-                            class: "scroll-blur scroll-blur-bottom hidden lg:block",
-                            "aria-hidden": "true",
                         }
                     }
                 }
