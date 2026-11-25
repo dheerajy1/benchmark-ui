@@ -324,19 +324,18 @@ fn WorkspaceResults(state: Signal<LiveState>) -> Element {
     }
 }
 
-// What happened, oldest first. The list stays pinned to its bottom, so the newest line is always
-// in view without scrolling.
+// What happened, oldest first. A short list sits at the top of its box and a long one stays
+// pinned to the bottom, so the newest line is always in view without scrolling. While the run
+// goes, a dotted row under the last line says the log is waiting for the next event.
 #[component]
 fn EventLog(state: Signal<LiveState>) -> Element {
     let toasts = use_toasts();
-    let (lines, copy) = {
+    let (lines, copy, running) = {
         let snapshot = state.read();
 
-        // Newest first in the page, the reversed column shows it last
         let lines: Vec<(String, String, &'static str)> = snapshot
             .log()
             .iter()
-            .rev()
             .map(|line| {
                 (
                     format!("+{}", format_duration_ms(line.t_ms as f64)),
@@ -346,7 +345,7 @@ fn EventLog(state: Signal<LiveState>) -> Element {
             })
             .collect();
 
-        (lines, log_text(snapshot.log()))
+        (lines, log_text(snapshot.log()), !snapshot.is_terminal())
     };
 
     rsx! {
@@ -367,15 +366,27 @@ fn EventLog(state: Signal<LiveState>) -> Element {
                     }
                 }),
             }
-            ol { class: "flex min-h-0 flex-1 flex-col-reverse gap-(--space-1) overflow-y-auto px-(--space-4) py-(--space-3)",
-                for (index , (time , text , tone_class)) in lines.into_iter().enumerate() {
-                    li {
-                        key: "{index}",
-                        class: "flex items-baseline gap-(--space-3) text-(length:--fs-sm)",
-                        span { class: "w-20 shrink-0 font-(family-name:--font-code) text-(length:--fs-xs) tabular-nums text-(color:--clr-text-faint)",
-                            "{time}"
+            // The box is reversed, so it opens at its bottom. The list inside keeps its natural
+            // order and `mb-auto` lifts it to the top of the box while it is shorter than the box.
+            div { class: "flex min-h-0 flex-1 flex-col-reverse overflow-y-auto px-(--space-4) py-(--space-3)",
+                ol { class: "mb-auto flex shrink-0 flex-col gap-(--space-1)",
+                    for (index , (time , text , tone_class)) in lines.into_iter().enumerate() {
+                        li {
+                            key: "{index}",
+                            class: "flex items-baseline gap-(--space-3) text-(length:--fs-sm)",
+                            span { class: "w-20 shrink-0 font-(family-name:--font-code) text-(length:--fs-xs) tabular-nums text-(color:--clr-text-faint)",
+                                "{time}"
+                            }
+                            span { class: "min-w-0 break-words {tone_class}", "{text}" }
                         }
-                        span { class: "min-w-0 break-words {tone_class}", "{text}" }
+                    }
+                    if running {
+                        li {
+                            "aria-hidden": "true",
+                            class: "mt-(--space-1) flex items-center gap-(--space-2) rounded-(--round-md) border border-dashed border-(color:--clr-border-strong) px-(--space-3) py-(--space-1) text-(length:--fs-xs) text-(color:--clr-text-muted)",
+                            span { class: "size-(--dot-size) shrink-0 rounded-(--round-full) bg-(--clr-accent) pulse-dot text-(color:--clr-accent)" }
+                            "Waiting for the next event"
+                        }
                     }
                 }
             }

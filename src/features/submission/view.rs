@@ -12,7 +12,7 @@ use super::{
     prefill::{prefill_for, reference_for, Prefill},
     previous_runs::{cards, format_when, now_epoch_ms, PreviousRuns},
     run_panel::RunPanel,
-    skeleton::TargetSkeleton,
+    skeleton::{FormSkeleton, PanelSkeleton, SwitchSkeleton},
     target_card::SavedTargetForm,
     target_run::{validate_target, TargetForm},
 };
@@ -549,14 +549,15 @@ pub fn Submission(#[props(default)] from_run: Option<String>, target: String) ->
         None => rsx! {},
     };
 
-    // The switch between saved targets and custom runs
+    // The switch between saved targets and custom runs. Its controls stretch to the height of the
+    // row, so the switch and the buttons share one top edge in both modes.
     let switch_bar: Element = match &targets_state {
         Loaded::Ready(view) if !view.targets.is_empty() || custom_allowed => {
             let no_targets = view.targets.is_empty();
             let selected = usize::from(effective_mode == StartMode::Custom);
 
             rsx! {
-                div { class: "flex flex-wrap items-center gap-(--space-3)",
+                div { class: "flex flex-wrap items-stretch gap-(--space-3)",
                     SegmentSwitch {
                         label: "Start from",
                         options: vec![
@@ -585,6 +586,9 @@ pub fn Submission(#[props(default)] from_run: Option<String>, target: String) ->
                 }
             }
         }
+        Loaded::Loading => rsx! {
+            SwitchSkeleton {}
+        },
         _ => rsx! {},
     };
 
@@ -627,7 +631,7 @@ pub fn Submission(#[props(default)] from_run: Option<String>, target: String) ->
         }
         Phase::Editing | Phase::Running => match (effective_mode, &targets_state) {
             (_, Loaded::Loading) => rsx! {
-                TargetSkeleton {}
+                FormSkeleton {}
             },
             (_, Loaded::Failed(error)) => rsx! {
                 ApiErrorPanel {
@@ -773,6 +777,10 @@ pub fn Submission(#[props(default)] from_run: Option<String>, target: String) ->
         _ => rsx! {},
     };
 
+    // While the targets load, the summary column shows its skeleton too, next to the form's
+    let loading = matches!(targets_state, Loaded::Loading)
+        && matches!(phase(), Phase::Editing | Phase::Running);
+
     rsx! {
         document::Title { "New benchmark · Benchmark" }
         div {
@@ -780,7 +788,7 @@ pub fn Submission(#[props(default)] from_run: Option<String>, target: String) ->
             PageHeader {
                 title: "New benchmark",
                 description: "Build, start and measure a project. You follow it live while it runs, and the result is stored in the run history.",
-                Link { to: Route::runs(), class: "{secondary}", "All runs" }
+                span {}
             }
             if paste_open() {
                 PasteModal {
@@ -796,15 +804,35 @@ pub fn Submission(#[props(default)] from_run: Option<String>, target: String) ->
                     on_close: move |_| paste_open.set(false),
                 }
             }
+            // One row of controls above both columns, so the form and the summary panel start on
+            // the same line. All runs stays at the right end, also while the switch is loading.
+            div { class: "mb-(--space-4) flex flex-wrap items-stretch gap-(--space-3)",
+                {switch_bar}
+                Link { to: Route::runs(), class: "{secondary} ml-auto", "All runs" }
+            }
             {banner_view}
             div { class: "grid grid-cols-1 gap-(--space-5) lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start",
                 div { class: "flex min-w-0 flex-col gap-(--space-4)",
-                    {switch_bar}
                     {body}
                 }
-                aside { class: "flex flex-col gap-(--space-4) lg:sticky lg:top-[calc(var(--topbar-height)+1rem)] lg:max-h-[calc(100vh-var(--topbar-height)-2rem)] lg:overflow-y-auto",
-                    {side}
-                    {previous}
+                if loading {
+                    PanelSkeleton {}
+                } else {
+                    aside { class: "lg:sticky lg:top-[calc(var(--topbar-height)+1rem)] lg:max-h-[calc(100vh-var(--topbar-height)-2rem)] lg:overflow-y-auto",
+                        // Blur strips over its top and bottom edges while there is more to scroll
+                        div {
+                            class: "scroll-blur scroll-blur-top hidden lg:block",
+                            "aria-hidden": "true",
+                        }
+                        div { class: "flex flex-col gap-(--space-4)",
+                            {side}
+                            {previous}
+                        }
+                        div {
+                            class: "scroll-blur scroll-blur-bottom hidden lg:block",
+                            "aria-hidden": "true",
+                        }
+                    }
                 }
             }
         }
